@@ -2,12 +2,8 @@
 
 precision highp float;
 
-layout(location = 0) uniform sampler2D sampler;
-
 out vec4 fragmentColor;
 
-in vec2 st;
-
 void main() {
-	fragmentColor = vec4(1.0,1.0,1.0,texture(sampler, st).a);
+	fragmentColor = vec4(0.8,0.8,0.8,1.0);
 }

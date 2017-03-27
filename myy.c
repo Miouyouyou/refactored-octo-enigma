@@ -1,35 +1,40 @@
-#include <src/helpers/opengl/loaders.h>
-#include <src/helpers/opengl/quads_structures.h>
+#include <myy/helpers/opengl/loaders.h>
+#include <myy/helpers/opengl/quads_structures.h>
+#include <myy/helpers/fonts/packed_fonts_display.h>
+#include <myy/helpers/fonts/packed_fonts_parser.h>
+
+#include <myy/helpers/matrices.h>
 #include <myy/helpers/struct.h>
 #include <myy/helpers/log.h>
-
 #include <myy.h>
 
-#include <stddef.h>
+#include <stddef.h> // offsetof
 
-#include <packed_fonts_parser.h>
+// ----- Variables ----------------------------------------
+
 
 struct glsl_programs_shared_data glsl_shared_data = {
+	.programs = {0},
 	.strings = {
 	  "shaders/standard.vert\0shaders/standard.frag\0"
-	  "shaders/cursor_shader.vsh\0shaders/cursor_shader.fsh\0"
+	  "shaders/node.vert\0shaders/node.frag\0"
 	},
 	.shaders = {
-	  [text_vsh] = {
+	  [standard_vsh] = {
 	    .type = GL_VERTEX_SHADER,
 	    .str_pos = 0,
 	  },
-	  [text_fsh] = {
+	  [standard_fsh] = {
 	    .type = GL_FRAGMENT_SHADER,
 	    .str_pos = 22,
 	  },
-	  [cursor_vsh] = {
+	  [node_vsh] = {
 	    .type = GL_VERTEX_SHADER,
 	    .str_pos = 44,
 	  },
-	  [cursor_fsh] = {
+	  [node_fsh] = {
 	    .type = GL_FRAGMENT_SHADER,
-	    .str_pos = 70
+	    .str_pos = 62,
 	  }
 	}
 };
@@ -44,250 +49,345 @@ struct glyph_infos myy_glyph_infos = {
 	.glyphdata_addr  = glyphdata
 };
 
-enum attributes { attr_xyz, attr_st, n_attrs };
-enum uniforms { unif_st, unif_offset, n_uniforms };
-enum myy_current_textures_id {
-	myy_characters_tex,
-	myy_cursor_tex,
-	n_textures_id
-};
-GLuint textures_id[n_textures_id];
-GLuint offset_uniform;
+int32_t string[]        = L"mov r0, #0";
+int32_t second_string[] = L"add r0, #14";
+uint32_t string_size = sizeof(string)/sizeof(uint32_t);
+uint32_t second_string_size = sizeof(string)/sizeof(uint32_t);
+US_two_tris_quad_3D quads[30];
 
-void myy_init() {}
 
-void myy_display_initialised(unsigned int width, unsigned int height) {}
-
-void myy_generate_new_state() {}
-
-static unsigned int find_codepoint_in
-(struct myy_packed_fonts_codepoints const * __restrict const codepoints,
- uint32_t searched_codepoint) {
-	unsigned int i = 1;
-	while (codepoints[i].codepoint &&
-	       (codepoints[i].codepoint != searched_codepoint))
-		i++;
-	unsigned int found_index =
-	  i * (codepoints[i].codepoint == searched_codepoint);
-	return found_index;
-}
-
-struct US_normalised_xy {
-	int x, y;
-};
-
-struct US_normalised_xy normalise_coordinates
-(int const width_px, int const height_px) {
-	struct US_normalised_xy normalised_dimensions = {
-		.x  = (width_px/960.0f)*32767,
-		.y = (height_px/540.0f)*32767
-	};
-
-	return normalised_dimensions;
-}
-
-int16_t myy_copy_glyph
-(struct glyph_infos const * __restrict const glyph_infos,
- uint32_t const codepoint,
- US_two_tris_quad_3D * __restrict const quad,
- int16_t x_offset_px) {
-
-	struct myy_packed_fonts_codepoints const * __restrict const codepoints =
-	  glyph_infos->codepoints_addr;
-
-	//LOG("[myy_copy_glyph]\n");
-	unsigned int codepoint_index =
-	  find_codepoint_in(codepoints, codepoint);
-	if (codepoint_index) {
-		struct myy_packed_fonts_glyphdata const * __restrict const glyphdata =
-		  glyph_infos->glyphdata_addr+codepoint_index;
-
-		int16_t glyph_x_offset_px = glyphdata->offset_x_px + x_offset_px;
-		int16_t glyph_y_offset_px = glyphdata->offset_y_px;
-		int16_t right_px = glyphdata->width_px  + glyph_x_offset_px;
-		int16_t up_px    = glyphdata->height_px + glyph_y_offset_px;
-		int16_t advance_x = x_offset_px + glyphdata->advance_x_px;
-
-		struct US_normalised_xy normalised_offsets =
-		  normalise_coordinates(glyph_x_offset_px, glyph_y_offset_px);
-		struct US_normalised_xy right_up =
-		  normalise_coordinates(right_px, up_px);
-
-		uint16_t const
-		  left  = normalised_offsets.x,
-		  right = right_up.x,
-		  down  = normalised_offsets.y,
-		  up    = right_up.y,
-		  layer = 20000,
-		  tex_left  = glyphdata->tex_left,
-		  tex_right = glyphdata->tex_right,
-		  tex_up    = glyphdata->tex_top,
-		  tex_down  = glyphdata->tex_bottom;
-
-		/*LOG("  %d↓\n"
-		    " Tex: left: %d, right : %d, bottom: %d, top: %d\n",
-		    codepoint, tex_left, tex_right, tex_down, tex_up);*/
-
-		quad->points[upleft_corner].s = tex_left;
-		quad->points[upleft_corner].t = tex_up;
-		quad->points[upleft_corner].x = left;
-		quad->points[upleft_corner].y = up;
-		quad->points[upleft_corner].z = layer;
-
-		quad->points[downleft_corner].s = tex_left;
-		quad->points[downleft_corner].t = tex_down;
-		quad->points[downleft_corner].x = left;
-		quad->points[downleft_corner].y = down;
-		quad->points[downleft_corner].z = layer;
-
-		quad->points[upright_corner].s	= tex_right;
-		quad->points[upright_corner].t	= tex_up;
-		quad->points[upright_corner].x	= right;
-		quad->points[upright_corner].y	= up;
-		quad->points[upright_corner].z	= layer;
-
-		quad->points[downright_corner].s = tex_right;
-		quad->points[downright_corner].t = tex_down;
-		quad->points[downright_corner].x = right;
-		quad->points[downright_corner].y = down;
-		quad->points[downright_corner].z = layer;
-
-		quad->points[repeated_upright_corner].s = tex_right;
-		quad->points[repeated_upright_corner].t = tex_up;
-		quad->points[repeated_upright_corner].x = right;
-		quad->points[repeated_upright_corner].y = up;
-		quad->points[repeated_upright_corner].z = layer;
-
-		quad->points[repeated_downleft_corner].s = tex_left;
-		quad->points[repeated_downleft_corner].t = tex_down;
-		quad->points[repeated_downleft_corner].x = left;
-		quad->points[repeated_downleft_corner].y = down;
-		quad->points[repeated_downleft_corner].z = layer;
-		return advance_x;
-	}
-	return x_offset_px;
-}
+// ----- Code ---------------------------------------------
 
 static void prepare_string
 (struct glyph_infos const * __restrict const glyph_infos,
  uint32_t const * __restrict const string,
  unsigned int const n_characters,
  US_two_tris_quad_3D * __restrict const quads) {
-
-	int16_t x_offset = 0;
-	for (unsigned int i = 0; i < n_characters; i++)
-		x_offset = myy_copy_glyph(glyph_infos, string[i], quads+i, x_offset);
-
+	myy_codepoints_to_glyph_twotris_quads_window_coords(
+	  glyph_infos, string, n_characters, quads
+	);
 }
 
-int string[] = L"Mon super hamster fait du Taekwondo ! Sérieux !";
-uint32_t string_size = sizeof(string)/sizeof(uint32_t);
-US_two_tris_quad_3D quads[90];
+void myy_init() {}
 
-void myy_init_drawing() {
-	glhBuildAndSaveSimpleProgram(
-	  &glsl_shared_data, text_vsh, text_fsh, glsl_text_program
+struct myy_gl_segment {
+	float startx, starty, endx, endy;
+};
+
+static void generer_segment_chaque_n_pixels
+(struct myy_gl_segment * const segments, unsigned int n_pixels,
+ unsigned int screen_width, unsigned int screen_height)
+{
+	unsigned int const
+	  n_lines_per_height = screen_height / n_pixels + 2,
+	  n_lines_per_width  = screen_width  / n_pixels + 2;
+	GLfloat
+	  half_width = (screen_width >> 1),
+	  half_height = (screen_height >> 1);
+
+	unsigned int l = 0;
+	/* [2.0,-2.0] ranges are useful when offseting the lines */
+	for (unsigned int i = 0; i < n_lines_per_width; i++, l++) {
+		GLfloat x_pos = (i * n_pixels)/half_width - 1;
+		segments[l].startx = x_pos;
+		segments[l].starty = 2.0;
+		segments[l].endx   = x_pos;
+		segments[l].endy   = -2.0;
+	}
+	for (unsigned int i = 0; i < n_lines_per_height; i++, l++) {
+		GLfloat y_pos = (i * n_pixels)/half_height - 1;
+		segments[l].startx = -2.0;
+		segments[l].starty = y_pos;
+		segments[l].endx   = 2.0;
+		segments[l].endy   = y_pos;
+	}
+}
+
+struct myy_gl_segment segments[80] = {0};
+GLuint segment_buffer;
+GLuint screen_width = 0, screen_height = 0;
+void myy_display_initialised(unsigned int width, unsigned int height) {
+	generer_segment_chaque_n_pixels(segments, 50, width, height);
+	screen_width = width / 2;
+	screen_height = height / 2;
+	glGenBuffers(1, &segment_buffer);
+	glBindBuffer(GL_ARRAY_BUFFER, segment_buffer);
+	glBufferData(GL_ARRAY_BUFFER, 80 * sizeof(struct myy_gl_segment),
+	             segments, GL_STATIC_DRAW);
+	glUseProgram(glsl_shared_data.programs[glsl_node_program]);
+	union myy_4x4_matrix px_to_norm;
+	myy_matrix_4x4_ortho_layered_window_coords(
+		&px_to_norm, width, height, 1024
 	);
+	glUniformMatrix4fv(
+		node_shader_unif_px_to_norm, 1, GL_FALSE, px_to_norm.raw_data
+	);
+}
+
+void myy_generate_new_state() {}
+
+#define CORNER_SIZE 10 // pixels
+struct box_metadata {
+	int32_t x, y;
+	int16_t width, height;
+} box_minimal_size = {
+	.width  = CORNER_SIZE * 2 + 1, // pixels
+	.height = CORNER_SIZE * 2 + 1 // pixels
+};
+
+struct box_metadata boxes[1] = {
+	[0] = {
+		.x = 1280/2-100,
+		.y = 720/2-50,
+		.width  = 200,
+		.height = 100
+	}
+};
+
+struct gpu_box_part { uint16_t rel_x, rel_y, width, height; };
+
+struct UIS_2D_point {
+	int32_t x, y;
+	uint16_t s, t;
+} __PALIGN__;
+struct UIS_2D_triangle {
+	struct UIS_2D_point a, b, c;
+} __PALIGN__;
+union UIS_2D_two_tris_quad {
+	int32_t xyST[18];
+	struct UIS_2D_point points[6];
+	struct UIS_2D_triangle triangles[2];
+} __PALIGN__;
+
+static void gpu_box_part
+(int32_t const x, int32_t const y,
+ int32_t width, int32_t height,
+ union UIS_2D_two_tris_quad * __restrict const two_tris_quad)
+{
+	two_tris_quad->points[upleft_corner].x            = x;
+	two_tris_quad->points[upleft_corner].y            = y;
+	two_tris_quad->points[upleft_corner].s            = 0;
+	two_tris_quad->points[upleft_corner].t            = 0;
+
+	two_tris_quad->points[downleft_corner].x          = x;
+	two_tris_quad->points[downleft_corner].y          = y + height;
+	two_tris_quad->points[downleft_corner].s          = 0;
+	two_tris_quad->points[downleft_corner].t          = 0;
+
+	two_tris_quad->points[upright_corner].x           = x + width;
+	two_tris_quad->points[upright_corner].y           = y;
+	two_tris_quad->points[upright_corner].s           = 0;
+	two_tris_quad->points[upright_corner].t           = 0;
+
+	two_tris_quad->points[downright_corner].x         = x + width;
+	two_tris_quad->points[downright_corner].y         = y + height;
+	two_tris_quad->points[downright_corner].s         = 0;
+	two_tris_quad->points[downright_corner].t         = 0;
+
+	two_tris_quad->points[repeated_upright_corner].x  = x + width;
+	two_tris_quad->points[repeated_upright_corner].y  = y;
+	two_tris_quad->points[repeated_upright_corner].s  = 0;
+	two_tris_quad->points[repeated_upright_corner].t  = 0;
+
+	two_tris_quad->points[repeated_downleft_corner].x = x;
+	two_tris_quad->points[repeated_downleft_corner].y = y + height;
+	two_tris_quad->points[repeated_downleft_corner].s = 0;
+	two_tris_quad->points[repeated_downleft_corner].t = 0;
+}
+
+enum gpu_box_corners { 
+	gpu_box_corner_topleft, gpu_box_corner_topright,
+	gpu_box_corner_bottomright, gpu_box_corner_bottomleft,
+	gpu_box_n_corners
+};
+enum gpu_box_borders {
+	gpu_box_left_border, gpu_box_right_border, gpu_box_n_borders
+};
+struct gpu_box_metadata {
+	union UIS_2D_two_tris_quad
+		main_body, lateral_borders[gpu_box_n_borders];
+	union UIS_2D_two_tris_quad corners[gpu_box_n_corners];
+};
+
+static void gpu_box_corner
+(int32_t x, int32_t y, int32_t corner_size,
+ union UIS_2D_two_tris_quad * __restrict const corner) {
+	gpu_box_part(x, y, corner_size, corner_size, corner);
+}
+void boxes_to_gpu_boxes
+(struct box_metadata const * __restrict const boxes,
+ unsigned int const n_boxes,
+ struct gpu_box_metadata * __restrict const output)
+{
+	unsigned int corner_size = CORNER_SIZE;
+	
+	memset(output, 0, n_boxes * sizeof(struct gpu_box_metadata));
+	for (unsigned int i = 0; i < n_boxes; i++) {
+		int 
+			x = boxes[i].x,
+			y = boxes[i].y,
+			main_body_height = boxes[i].height,
+			main_body_width = boxes[i].width - corner_size - corner_size,
+			lateral_height  = boxes[i].height - corner_size - corner_size;
+		
+		struct gpu_box_metadata * __restrict const current_gpu_box = 
+			output+i;
+		LOG("x : %d, y : %d\n", x, y);
+		gpu_box_part(
+			x+corner_size, y,
+			main_body_width, main_body_height, 
+			&current_gpu_box->main_body
+		);
+		gpu_box_part(
+			x, y+corner_size,
+			corner_size, lateral_height,
+			current_gpu_box->lateral_borders+gpu_box_left_border
+		);
+		gpu_box_part(
+			x+corner_size+main_body_width, y+corner_size, 
+			corner_size, lateral_height,
+			current_gpu_box->lateral_borders+gpu_box_right_border
+		);
+		gpu_box_corner(
+			x, y, corner_size,
+			current_gpu_box->corners+gpu_box_corner_topleft
+		);
+		gpu_box_corner(
+			x+corner_size+main_body_width, y, corner_size, 
+			current_gpu_box->corners+gpu_box_corner_topright
+		);
+		gpu_box_corner(
+			x+corner_size+main_body_width, y+corner_size+lateral_height,
+			corner_size, 
+			current_gpu_box->corners+gpu_box_corner_bottomright
+		);
+		gpu_box_corner(
+			x, y+corner_size+lateral_height, corner_size,
+			current_gpu_box->corners+gpu_box_corner_bottomleft
+		);
+
+	}
+}
+struct gpu_box_metadata gpu_boxes[2];
+void myy_init_drawing() {
+	
+	glhBuildAndSaveSimpleProgram(
+	  &glsl_shared_data,
+	  node_vsh, node_fsh,
+	  glsl_node_program
+	);
+	glhBuildAndSaveSimpleProgram(
+	  &glsl_shared_data,
+	  standard_vsh, standard_fsh,
+	  glsl_standard_program
+	);
+
+	GLuint textures_id[n_textures_id];
 	glhUploadMyyRawTextures(
-	  "textures/super_bitmap.raw\0"
+	  "textures/fonts.raw\0"
 	  "textures/cursor.raw",
-	  n_textures_id, textures_id
+	  n_textures_id,
+	  textures_id
 	);
 	glhActiveTextures(textures_id, 2);
-	glEnableVertexAttribArray(attr_xyz);
-	glEnableVertexAttribArray(attr_st);
-	glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-	myy_parse_packed_fonts(&myy_glyph_infos, "data/codepoints.dat");
-	/*myy_copy_glyph(&myy_glyph_infos, L'a', quads, 0);
-	myy_copy_glyph(&myy_glyph_infos, L'p', quads+1, 12*51);*/
-	prepare_string(&myy_glyph_infos, string, string_size, quads);
 
-}
-
-static struct mouse_cursor_position { 
-	int x, y;
-} 
-cursor = {200,200};
-
-struct textured_point_3D cursor_icon[4] = {
-  {.x = 0.025f, .y = 0, .z = 0.2f, .s = 1.0f, .t = 1.0f},
-	{.x = 0, .y = 0, .z = 0.2f, .s = 0.0f, .t = 1.0f},
-	{.x = 0, .y = -0.04444f, .z = 0.2f, .s = 0.0f, .t = 0.0f},
-	{.x = 0.025f, .y = -0.04444f, .z = 0.2f, .s = 1.0f, .t = 0.0f}
-};
-
-struct normalised_float_coords {
-	GLfloat x, y;
-};
-
-struct normalised_float_coords normalise_float_coords
-(int const x, int const y)
-{
-	/* 960.0f and 540.0f are half 1080p dimensions... Still, random
-	 * values coming from nowhere should be removed soon enough. */
-	struct normalised_float_coords result = {
-		.x = (x / 960.0f) - 1.0f,
-		.y = (y / 540.0f) - 1.0f
+	struct box_metadata box[2] = {
+		[0] = {
+			.x = 1280/2 - 100,
+			.y = 720/2 - 50,
+			.width = 400,
+			.height = 100
+		},
+		[1] = {
+			.x = -100,
+			.y = -100,
+			.width = 300,
+			.height = 700
+		}
 	};
-	return result;
+	
+	boxes_to_gpu_boxes(box, 2, gpu_boxes);
+	myy_parse_packed_fonts(&myy_glyph_infos, "data/codepoints.dat");
+	prepare_string(&myy_glyph_infos, string, string_size, quads);
+	prepare_string(
+		&myy_glyph_infos, second_string, second_string_size,
+		quads+string_size
+	);
+	glEnable(GL_DEPTH_TEST);
+	glEnable(GL_CULL_FACE);
+	
+	LOG("After boboxes\n");
 }
+
+int offset[4] = {0};
+struct norm_offset { GLfloat x, y; };
+struct norm_offset normalised_offset() {
+	struct norm_offset norm_offset = {
+		.x = (float) offset[0] / screen_width,
+		.y = (float) offset[1] / screen_height
+	};
+	return norm_offset;
+};
 
 void myy_draw() {
 
 	glClear( GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT );
-	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+	glClearColor(0.1f, 0.3f, 0.5f, 1.0f);
 
-	GLuint const * const programs = glsl_shared_data.programs;
-	glUseProgram(programs[glsl_text_program]);
-	glUniform2f(unif_offset, 0.0f, 0.0f);
-	glUniform1i(unif_st, myy_characters_tex);
-	glVertexAttribPointer(attr_xyz, 3, GL_SHORT, GL_TRUE,
-	                      sizeof(struct US_textured_point_3D),
-	                      (uint8_t *)
-	                      (quads)+offsetof(struct US_textured_point_3D, x));
-	glVertexAttribPointer(attr_st, 2, GL_UNSIGNED_SHORT, GL_TRUE,
-	                      sizeof(struct US_textured_point_3D),
-	                      (uint8_t *)
-	                      (quads)+offsetof(struct US_textured_point_3D, s));
-	glDrawArrays(GL_TRIANGLES, 0, 6 * string_size);
-	struct normalised_float_coords cursor_coords =
-	  normalise_float_coords(cursor.x, cursor.y);
-	glUniform2f(unif_offset, cursor_coords.x, cursor_coords.y);
-	glUniform1i(unif_st, myy_cursor_tex);
-	glVertexAttribPointer(attr_xyz, 3, GL_FLOAT, GL_FALSE,
-	                      sizeof(struct textured_point_3D),
-	                      (uint8_t *)
-	                      (cursor_icon)+offsetof(struct textured_point_3D, x));
-	glVertexAttribPointer(attr_st, 2, GL_FLOAT, GL_FALSE,
-	                      sizeof(struct textured_point_3D),
-	                      (uint8_t *)
-	                      (cursor_icon)+offsetof(struct textured_point_3D, s));
-	glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+	GLuint * glsl_programs = glsl_shared_data.programs;
+	struct norm_offset norm_offset = normalised_offset();
+	
+	glBindBuffer(GL_ARRAY_BUFFER, 0);
+	/* Nodes */
+	glUseProgram(glsl_programs[glsl_node_program]);
+	glUniform1f(node_shader_unif_layer, 0.4f);
+	glUniform4f(node_shader_unif_px_offset, offset[2], offset[3],0,0);
+	glEnableVertexAttribArray(node_shader_attr_xyz);
+	glEnableVertexAttribArray(node_shader_attr_st);
+	glVertexAttribPointer(
+		node_shader_attr_xyz, 2, GL_INT, GL_FALSE,
+		sizeof(struct UIS_2D_point),
+		(uint8_t *) gpu_boxes+offsetof(struct UIS_2D_point, x)
+	);
+	glVertexAttribPointer(
+		node_shader_attr_st, 2, GL_UNSIGNED_SHORT, GL_TRUE,
+		sizeof(struct UIS_2D_point),
+		(uint8_t *) gpu_boxes+offsetof(struct UIS_2D_point, s)
+	);
+	glDrawArrays(GL_TRIANGLES, 0, 42*2);
+
+	/* Text */
+	glUniform1i(node_shader_unif_sampler, 0);
+	glUniform1f(node_shader_unif_layer, 0.3f);
+	glUniform4f(node_shader_unif_px_offset, offset[2], offset[3],-80,-80);
+	glVertexAttribPointer(
+		node_shader_attr_xyz, 3, GL_SHORT, GL_FALSE,
+		sizeof(struct US_textured_point_3D),
+		(uint8_t *) quads+offsetof(struct US_textured_point_3D, x)
+	);
+	glVertexAttribPointer(
+		node_shader_attr_st, 2, GL_UNSIGNED_SHORT, GL_TRUE,
+		sizeof(struct US_textured_point_3D),
+		(uint8_t *) (quads)+offsetof(struct US_textured_point_3D, s)
+	);
+	glDrawArrays(GL_TRIANGLES, 0, 6*string_size);
+	
+	glUniform4f(node_shader_unif_px_offset, offset[2], offset[3],-80,-60);
+	glDrawArrays(GL_TRIANGLES, 6*string_size, 6*second_string_size);
+	
+	glUseProgram(glsl_programs[glsl_standard_program]);
+	glEnableVertexAttribArray(attr_xyz);
+	glUniform2f(unif_offset, norm_offset.x, norm_offset.y);
+	glBindBuffer(GL_ARRAY_BUFFER, segment_buffer);
+	glVertexAttribPointer(attr_xyz, 2, GL_FLOAT, GL_FALSE, 0, 0);
+	glLineWidth(2);
+	glDrawArrays(GL_LINES, 0, 320);
 }
 
-void myy_abs_mouse_move(int x, int y) {
-	int 
-	  current_x = cursor.x,
-		new_x = current_x + x;
-
-	new_x >>= ((new_x < 0) << 5);
-	new_x = (new_x < 1920 ? new_x : 1920);
-
-	int
-		current_y = cursor.y,
-		new_y = current_y + y;
-
-	new_y >>= ((new_y < 0) << 5);
-	new_y = (new_y < 1080 ? new_y : 1080);
-
-	cursor.x = new_x;
-	cursor.y = new_y;
-
+void myy_rel_mouse_move(int x, int y) {
 }
 
 void myy_mouse_action(enum mouse_action_type type, int value) {
-	LOG("Wheely ! : %d\n", value);
 }
 
 void myy_save_state(struct myy_game_state * const state) {}
@@ -298,8 +398,38 @@ void myy_cleanup_drawing() {}
 
 void myy_stop() {}
 
-void myy_click(int x, int y, unsigned int button) {}
+int16_t last_x, last_y;
+void myy_click(int x, int y, unsigned int button) {
+	last_x = x;
+	last_y = y;
+}
 void myy_doubleclick(int x, int y, unsigned int button) {}
-void myy_move(int x, int y) {}
-void myy_hover(int x, int y) {}
-void myy_key(unsigned int keycode) {}
+void myy_move(int x, int y, int start_x, int start_y) {
+	int32_t delta_x = x - last_x;
+	int32_t delta_y = y - last_y;
+	int32_t new_offset_x = (offset[0] + delta_x) % 50;
+	int32_t new_offset_y = (offset[1] + delta_y) % 50;
+  offset[0] = new_offset_x;
+	offset[1] = new_offset_y;
+	offset[2] += delta_x;
+	offset[3] -= delta_y;
+	last_x = x;
+	last_y = y;
+}
+void myy_hover(int x, int y) {
+}
+
+#define MYY_KP_7 79
+#define MYY_KP_8 80
+#define MYY_KP_9 81
+#define MYY_KP_MINUS 82
+#define MYY_KP_4 83
+#define MYY_KP_5 84
+#define MYY_KP_6 85
+#define MYY_KP_PLUS 86
+#define MYY_KP_1 87
+#define MYY_KP_2 88
+#define MYY_KP_3 89
+
+void myy_key(unsigned int keycode) {
+}

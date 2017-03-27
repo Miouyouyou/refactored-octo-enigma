@@ -13,3 +13,4 @@
 .project
 *.user
 CMakeFiles/
+*.kdev4
