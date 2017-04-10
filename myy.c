@@ -1,189 +1,770 @@
-#include <GLES3/gl3.h>
-#include <helpers/base_gl.h>
-#include <helpers/struct.h>
-#include <helpers/log.h>
+#include <myy/helpers/opengl/loaders.h>
+#include <myy/helpers/opengl/quads_structures.h>
+#include <myy/helpers/fonts/packed_fonts_display.h>
+#include <myy/helpers/fonts/packed_fonts_parser.h>
 
+#include <myy/helpers/matrices.h>
+#include <myy/helpers/struct.h>
+#include <myy/helpers/log.h>
 #include <myy.h>
 
-#include <stddef.h>
+#include <lib/Assembler/armv7-arm.h>
+#include <lib/Assembler/helpers/memory.h>
+#include <assert.h>
 
-#include <packed_fonts_parser.h>
+#include <src/nodes.h>
+#include <src/menus.h>
+
+#include <stddef.h> // offsetof
+
+// ----- Variables ----------------------------------------
+
+
+struct glsl_programs_shared_data glsl_shared_data = {
+	.programs = {0},
+	.strings = {
+	  "shaders/standard.vert\0shaders/standard.frag\0"
+	  "shaders/node.vert\0shaders/node.frag\0"
+	  "shaders/fixed_widgets.vert\0shaders/fixed_widgets.frag\0"
+	},
+	.shaders = {
+	  [standard_vsh] = {
+	    .type = GL_VERTEX_SHADER,
+	    .str_pos = 0,
+	  },
+	  [standard_fsh] = {
+	    .type = GL_FRAGMENT_SHADER,
+	    .str_pos = 22,
+	  },
+	  [node_vsh] = {
+	    .type = GL_VERTEX_SHADER,
+	    .str_pos = 44,
+	  },
+	  [node_fsh] = {
+	    .type = GL_FRAGMENT_SHADER,
+	    .str_pos = 62,
+	  },
+		[fixed_widgets_vsh] = {
+			.type = GL_VERTEX_SHADER,
+			.str_pos = 80,
+		},
+		[fixed_widgets_fsh] = {
+			.type = GL_FRAGMENT_SHADER,
+			.str_pos = 107
+		},
+	}
+};
 
 #define MANAGED_CODEPOINTS 512
 struct myy_packed_fonts_codepoints codepoints[MANAGED_CODEPOINTS] = {0};
-struct myy_packed_fonts_glyphdata glyphdata[MANAGED_CODEPOINTS] = {0};
-
+struct myy_packed_fonts_glyphdata   glyphdata[MANAGED_CODEPOINTS] = {0};
+GLuint static_menu_parts_buffer[1];
+GLuint context_menu_text_buffer[2];
 struct glyph_infos myy_glyph_infos = {
 	.stored_codepoints = 0,
 	.codepoints_addr = codepoints,
 	.glyphdata_addr  = glyphdata
 };
 
-enum attributes { attr_xyz, attr_st, n_attrs };
-enum { texid_font, n_textures };
-GLuint textures_id[n_textures];
+// Nodes
+gpu_node_representation nodes_gl_coords[2];
+
+/*------- Assembler ---*/
+
+struct mnemonic_info {
+	uint8_t n_args;
+	uint8_t * name;
+};
+
+enum { 
+	arg_cat_invalid,
+	arg_cat_condition,
+	arg_cat_register,
+	arg_cat_immediate,
+	arg_cat_negative_immediate,
+	arg_cat_immediate_or_address,
+	arg_cat_data_address,
+	arg_cat_frame_address_pc_relative,
+	arg_cat_regmask
+};
+
+static uint8_t const mnemonics_args_type[n_known_instructions][MAX_ARGS] =
+{
+	[inst_add_immediate]  = {arg_cat_register, arg_cat_register, arg_cat_immediate},
+	[inst_b_address]      = {arg_cat_condition, arg_cat_frame_address_pc_relative, 0},
+	[inst_bl_address]     = {arg_cat_condition, arg_cat_frame_address_pc_relative, 0},
+	[inst_blx_address]    = {arg_cat_condition, arg_cat_frame_address_pc_relative, 0},
+	[inst_blx_register]   = {arg_cat_condition, arg_cat_register, 0},
+	[inst_bx_register]    = {arg_cat_condition, arg_cat_register, 0},
+	[inst_mov_immediate]  = {arg_cat_register, arg_cat_immediate, 0},
+	[inst_mov_register]   = {arg_cat_register, arg_cat_register, 0},
+	[inst_movt_immediate] = {arg_cat_register, arg_cat_immediate, 0},
+	[inst_movw_immediate] = {arg_cat_register, arg_cat_immediate_or_address, 0},
+	[inst_mvn_immediate]  = {arg_cat_register, arg_cat_negative_immediate, 0},
+	[inst_pop_regmask]    = {arg_cat_regmask, 0, 0},
+	[inst_push_regmask]   = {arg_cat_regmask, 0, 0},
+	[inst_sub_immediate]  = {arg_cat_register, arg_cat_register, arg_cat_immediate},
+	[inst_svc_immediate]  = {arg_cat_immediate, 0, 0},
+};
+
+static uint8_t const * const mnemonics[n_known_instructions] = {
+	[inst_add_immediate]  = "add",
+	[inst_b_address]      = "b",
+	[inst_bl_address]     = "bl",
+	[inst_blx_address]    = "blx",
+	[inst_blx_register]   = "blx",
+	[inst_bx_register]    = "bx",
+	[inst_mov_immediate]  = "mov",
+	[inst_mov_register]   = "mov",
+	[inst_movt_immediate] = "movt",
+	[inst_movw_immediate] = "movw",
+	[inst_mvn_immediate]  = "mvn",
+	[inst_pop_regmask]    = "pop",
+	[inst_push_regmask]   = "push",
+	[inst_sub_immediate]  = "sub",
+	[inst_svc_immediate]  = "svc"
+};
+
+static uint8_t const * const
+mnemonics_full_desc[n_known_instructions] = {
+	[inst_add_immediate]  = "ADD (Immediate)",
+	[inst_b_address]      = "B",
+	[inst_bl_address]     = "BL",
+	[inst_blx_address]    = "BLX",
+	[inst_blx_register]   = "BLX (Register)",
+	[inst_bx_register]    = "BX (Register)",
+	[inst_mov_immediate]  = "MOV",
+	[inst_mov_register]   = "MOV (Register)",
+	[inst_movt_immediate] = "MOVT",
+	[inst_movw_immediate] = "MOVW",
+	[inst_mvn_immediate]  = "MVN",
+	[inst_pop_regmask]    = "POP",
+	[inst_push_regmask]   = "PUSH",
+	[inst_sub_immediate]  = "SUB (Immediate)",
+	[inst_svc_immediate]  = "SVC"
+};
+
+static uint8_t mnemonic_args[n_known_instructions] = {
+	[inst_add_immediate]  = 3,
+	[inst_b_address]      = 2,
+	[inst_bl_address]     = 2,
+	[inst_blx_address]    = 2,
+	[inst_blx_register]   = 2,
+	[inst_bx_register]    = 2,
+	[inst_mov_immediate]  = 2,
+	[inst_mov_register]   = 2,
+	[inst_movt_immediate] = 2,
+	[inst_movw_immediate] = 2,
+	[inst_mvn_immediate]  = 2,
+	[inst_pop_regmask]    = 1,
+	[inst_push_regmask]   = 1,
+	[inst_sub_immediate]  = 3,
+	[inst_svc_immediate]  = 1,
+};
+
+static uint8_t const * conditions_strings[15] = {
+	[cond_eq] = "eq",
+	[cond_ne] = "ne",
+	[cond_cs] = "cs",
+	[cond_cc] = "cc",
+	[cond_mi] = "mi",
+	[cond_pl] = "pl",
+	[cond_vs] = "vs",
+	[cond_vc] = "vc",
+	[cond_hi] = "hi",
+	[cond_ls] = "ls",
+	[cond_ge] = "ge",
+	[cond_lt] = "lt",
+	[cond_gt] = "gt",
+	[cond_le] = "le",
+	[cond_al] = "al"
+};
+
+uint8_t const * register_names[] = {
+	[r0]  = "r0",
+	[r1]  = "r1",
+	[r2]  = "r2",
+	[r3]  = "r3",
+	[r4]  = "r4",
+	[r5]  = "r5",
+	[r6]  = "r6",
+	[r7]  = "r7",
+	[r8]  = "r8",
+	[r9]  = "r9",
+	[r10] = "r10",
+	[r11] = "r11",
+	[r12] = "ip",
+	[r13] = "sp",
+	[r14] = "lr",
+	[r15] = "pc"
+};
+
+GLuint test_frame_gpu_buffer[1] = {0};
+unsigned int current_inst_id = 0;
+unsigned int current_arg_id = 0;
+
+// Hitboxes
+
+struct frame_hitbox {
+	int16_t x_left, x_right, y_up, y_down;
+};
+struct frame_hitboxes {
+	uint32_t n_hitboxes;
+	uint32_t max_hitboxes;
+	struct frame_hitbox * hitboxes;
+};
+struct frame_hitboxes test_frame_hitboxes;
+// fixed hitboxes number by element
+// hitboxes / 4 = index - hitboxes % 4 = arg
+
+// Background lines
+
+struct myy_gl_segment { float startx, starty, endx, endy; };
+
+struct myy_gl_segment segments[80] = {0};
+GLuint segment_buffer;
+GLuint screen_width = 0, screen_height = 0;
+
+// Menu
+uint8_t scratch_buffer[0x4000] __attribute__((aligned(32)));
+
+
+// ----- Code ---------------------------------------------
+
+static void add_inst
+(struct armv7_text_frame * __restrict const frame,
+ enum known_instructions mnemonic_id,
+ enum argument_type arg_type1,
+ int32_t arg1,
+ enum argument_type arg_type2,
+ int32_t arg2,
+ enum argument_type arg_type3,
+ int32_t arg3)
+{
+	struct armv7_add_instruction_status status =
+		frame_add_instruction(frame);
+	assert(status.added);
+	struct instruction_representation * const inst = status.address;
+	
+	instruction_mnemonic_id(inst, mnemonic_id);
+	instruction_arg(inst, 0, arg_type1, arg1);
+	instruction_arg(inst, 1, arg_type2, arg2);
+	instruction_arg(inst, 2, arg_type3, arg3);
+}
+
+static uint32_t frame_id = 0;
+static uint32_t id_gen() {
+	uint32_t returned_id = frame_id;
+	frame_id++;
+	return returned_id;
+}
+
+struct armv7_text_frame * __restrict test_frame;
+static struct armv7_text_frame * prepare_test_frame() {
+	test_frame = generate_armv7_text_frame(id_gen);
+	
+	uint32_t const hamster_id = 9;
+	add_inst(
+		test_frame,
+		inst_mov_immediate, arg_register, r0, arg_immediate, 0, 0, 0
+	);
+	
+	add_inst(
+		test_frame,
+		inst_mov_immediate,
+		arg_register, r1,
+		arg_data_symbol_address_bottom16, hamster_id,
+		0, 0
+	);
+	
+	add_inst(
+		test_frame,
+		inst_movt_immediate,
+		arg_register, r1,
+		arg_data_symbol_address_top16, hamster_id,
+		0, 0
+	);
+	
+	add_inst(
+		test_frame,
+		inst_mov_immediate,
+		arg_register, r2,
+		arg_data_symbol_size, hamster_id,
+		0, 0
+	);
+	
+	add_inst(
+		test_frame,
+		inst_mov_immediate,
+		arg_register, r7,
+		arg_immediate, 4,
+		0, 0
+	);
+	
+	add_inst(
+		test_frame,
+		inst_svc_immediate,
+		arg_immediate, 0,
+		0, 0,
+		0, 0
+	);
+		
+	add_inst(
+		test_frame,
+		inst_bx_register,
+		arg_condition, cond_al,
+		arg_register, reg_lr,
+		0, 0
+	);
+	
+	return test_frame;
+}
 
 void myy_init() {}
 
-void myy_display_initialised(unsigned int width, unsigned int height) {}
+static void generer_segment_chaque_n_pixels
+(struct myy_gl_segment * const segments, unsigned int n_pixels,
+ unsigned int screen_width, unsigned int screen_height)
+{
+	unsigned int const
+	  n_lines_per_height = screen_height / n_pixels + 2,
+	  n_lines_per_width  = screen_width  / n_pixels + 2;
+	GLfloat
+	  half_width = (screen_width >> 1),
+	  half_height = (screen_height >> 1);
+
+	unsigned int l = 0;
+	/* [2.0,-2.0] ranges are useful when offseting the lines */
+	for (unsigned int i = 0; i < n_lines_per_width; i++, l++) {
+		GLfloat x_pos = (i * n_pixels)/half_width - 1;
+		segments[l].startx = x_pos;
+		segments[l].starty = 2.0;
+		segments[l].endx   = x_pos;
+		segments[l].endy   = -2.0;
+	}
+	for (unsigned int i = 0; i < n_lines_per_height; i++, l++) {
+		GLfloat y_pos = (i * n_pixels)/half_height - 1;
+		segments[l].startx = -2.0;
+		segments[l].starty = y_pos;
+		segments[l].endx   = 2.0;
+		segments[l].endy   = y_pos;
+	}
+}
+
+void myy_display_initialised(unsigned int width, unsigned int height) {
+	generer_segment_chaque_n_pixels(segments, 50, width, height);
+	screen_width = width / 2;
+	screen_height = height / 2;
+	glGenBuffers(1, &segment_buffer);
+	glBindBuffer(GL_ARRAY_BUFFER, segment_buffer);
+	glBufferData(GL_ARRAY_BUFFER, 80 * sizeof(struct myy_gl_segment),
+	             segments, GL_STATIC_DRAW);
+	glUseProgram(glsl_shared_data.programs[glsl_program_node]);
+	union myy_4x4_matrix px_to_norm;
+	myy_matrix_4x4_ortho_layered_window_coords(
+		&px_to_norm, width, height, 1024
+	);
+	glUniformMatrix4fv(
+		node_shader_unif_px_to_norm, 1, GL_FALSE, px_to_norm.raw_data
+	);
+	glUseProgram(glsl_shared_data.programs[glsl_program_fixed_widgets]);
+	glUniformMatrix4fv(
+		node_shader_unif_px_to_norm, 1, GL_FALSE, px_to_norm.raw_data
+	);
+}
 
 void myy_generate_new_state() {}
 
-static unsigned int find_codepoint_in
-(struct myy_packed_fonts_codepoints const * __restrict const codepoints,
- uint32_t searched_codepoint) {
-	unsigned int i = 1;
-	while (codepoints[i].codepoint &&
-	       (codepoints[i].codepoint != searched_codepoint))
-		i++;
-	unsigned int found_index =
-	  i * (codepoints[i].codepoint == searched_codepoint);
-	return found_index;
+#include <myy/helpers/strings.h>
+#include <stdio.h>
+
+static unsigned int offset_between
+(uintptr_t const begin, uintptr_t const end)
+{
+	return (unsigned int) (end - begin);
 }
 
-struct US_normalised_xy {
-	int x, y;
+
+
+static void add_hitbox
+(int32_t const x_left, int32_t const x_right,
+ int32_t const y_up,   int32_t const y_down)
+{
+	struct frame_hitbox * const new_hitbox = 
+		test_frame_hitboxes.hitboxes+test_frame_hitboxes.n_hitboxes;
+	
+	new_hitbox->x_left = x_left;
+	new_hitbox->x_right = x_right;
+	new_hitbox->y_up = y_up;
+	new_hitbox->y_down = y_down;
+	
+	test_frame_hitboxes.n_hitboxes++;
+}
+
+struct hitcheck_result {
+	unsigned int hit;
+	unsigned int id;
 };
 
-struct US_normalised_xy normalise_coordinates
-(int const width_px, int const height_px) {
-	struct US_normalised_xy normalised_dimensions = {
-		.x  = (width_px/640.0f)*32767,
-		.y = (height_px/360.0f)*32767
+static struct hitcheck_result got_hitbox
+(struct frame_hitboxes * hitboxes, int x, int y)
+{
+	unsigned int h = 0; 
+	unsigned int n_hitboxes = hitboxes->n_hitboxes;
+	while (h < n_hitboxes) {
+		struct frame_hitbox current_hitbox = hitboxes->hitboxes[h];
+		if (x < current_hitbox.x_left || x > current_hitbox.x_right ||
+			  y < current_hitbox.y_up || y > current_hitbox.y_down)
+			h++;
+		else
+			break;
+	}
+	
+	struct hitcheck_result result = {
+		.hit = (h != n_hitboxes),
+		.id = h
 	};
-
-	return normalised_dimensions;
+	
+	return result;
 }
 
-int16_t myy_copy_glyph
+static inline void add_invalid_hitbox() {
+	add_hitbox(0xffff,0xffff,0xffff,0xffff);
+}
+
+struct instruction_from_hitbox {
+	unsigned int i;
+	unsigned int arg_i;
+};
+static struct instruction_from_hitbox infer_instruction_from_hitbox_id
+(unsigned int hitbox_index)
+{
+	struct instruction_from_hitbox result = {
+		.i = hitbox_index / 4,
+		.arg_i = hitbox_index % 4
+	};
+	
+	return result;
+}
+static void react_on_hitbox(unsigned int const id)
+{
+	struct instruction_from_hitbox inst_infos =
+		infer_instruction_from_hitbox_id(id);
+	if (id % 4 == 0) enable_context_menu();
+	LOG("%04x: %s (arg : %d)\n",
+	    id * 4,
+	    mnemonics[test_frame->instructions[inst_infos.i].mnemonic_id],
+	    inst_infos.arg_i);
+	current_inst_id = inst_infos.i;
+	current_arg_id = inst_infos.arg_i;
+}
+
+unsigned int generate_instruction_quads
 (struct glyph_infos const * __restrict const glyph_infos,
- uint32_t const codepoint,
- US_two_tris_quad_3D * __restrict const quad,
- int16_t x_offset_px) {
+ struct instruction_representation const * __restrict const instruction,
+ uint8_t * __restrict const cpu_buffer, int16_t const y_offset)
+{
 
-	struct myy_packed_fonts_codepoints const * __restrict const codepoints =
-	  glyph_infos->codepoints_addr;
+	uint8_t * __restrict buffer = cpu_buffer;
+	
+	struct text_offset text_offset = {
+		.x_offset = 0,
+		.y_offset = y_offset
+	};
+	
+	// Arbitrary defined. Ugly but should do the trick for the PoC.
+	unsigned int const line_height = 20; // pixels. 
+	uint8_t const * __restrict const mnemonic =
+		mnemonics[instruction->mnemonic_id];
+	unsigned int n_mnemonic_args =
+		mnemonic_args[instruction->mnemonic_id];
 
-	LOG("[myy_copy_glyph]\n");
-	unsigned int codepoint_index =
-	  find_codepoint_in(codepoints, codepoint);
-	if (codepoint_index) {
-		struct myy_packed_fonts_glyphdata const * __restrict const glyphdata =
-		  glyph_infos->glyphdata_addr+codepoint_index;
-
-		int16_t glyph_x_offset_px = glyphdata->offset_x_px + x_offset_px;
-		int16_t glyph_y_offset_px = glyphdata->offset_y_px;
-		int16_t right_px = glyphdata->width_px  + glyph_x_offset_px;
-		int16_t up_px    = glyphdata->height_px + glyph_y_offset_px;
-		int16_t advance_x = x_offset_px + glyphdata->advance_x_px;
-
-		struct US_normalised_xy normalised_offsets =
-		  normalise_coordinates(glyph_x_offset_px, glyph_y_offset_px);
-		struct US_normalised_xy right_up =
-		  normalise_coordinates(right_px, up_px);
-
-		uint16_t const
-		  left  = normalised_offsets.x,
-		  right = right_up.x,
-		  down  = normalised_offsets.y,
-		  up    = right_up.y,
-		  layer = 20000,
-		  tex_left  = glyphdata->tex_left,
-		  tex_right = glyphdata->tex_right,
-		  tex_up    = glyphdata->tex_top,
-		  tex_down  = glyphdata->tex_bottom;
-
-		LOG("  %d↓\n"
-		    " Tex: left: %d, right : %d, bottom: %d, top: %d\n",
-		    codepoint, tex_left, tex_right, tex_down, tex_up);
-
-		quad->points[upleft_corner].s = tex_left;
-		quad->points[upleft_corner].t = tex_up;
-		quad->points[upleft_corner].x = left;
-		quad->points[upleft_corner].y = up;
-		quad->points[upleft_corner].z = layer;
-
-		quad->points[downleft_corner].s = tex_left;
-		quad->points[downleft_corner].t = tex_down;
-		quad->points[downleft_corner].x = left;
-		quad->points[downleft_corner].y = down;
-		quad->points[downleft_corner].z = layer;
-
-		quad->points[upright_corner].s	= tex_right;
-		quad->points[upright_corner].t	= tex_up;
-		quad->points[upright_corner].x	= right;
-		quad->points[upright_corner].y	= up;
-		quad->points[upright_corner].z	= layer;
-
-		quad->points[downright_corner].s = tex_right;
-		quad->points[downright_corner].t = tex_down;
-		quad->points[downright_corner].x = right;
-		quad->points[downright_corner].y = down;
-		quad->points[downright_corner].z = layer;
-
-		quad->points[repeated_upright_corner].s = tex_right;
-		quad->points[repeated_upright_corner].t = tex_up;
-		quad->points[repeated_upright_corner].x = right;
-		quad->points[repeated_upright_corner].y = up;
-		quad->points[repeated_upright_corner].z = layer;
-
-		quad->points[repeated_downleft_corner].s = tex_left;
-		quad->points[repeated_downleft_corner].t = tex_down;
-		quad->points[repeated_downleft_corner].x = left;
-		quad->points[repeated_downleft_corner].y = down;
-		quad->points[repeated_downleft_corner].z = layer;
-		return advance_x;
+	
+	buffer += myy_single_string_to_quads(
+		glyph_infos, mnemonic, buffer, &text_offset
+	);
+	add_hitbox(
+		-10, text_offset.x_offset+10, y_offset, y_offset+line_height
+	);
+	text_offset.x_offset = 60;
+	
+	uint8_t empty_buffer = '\0';
+	uint8_t to_string_buffer[64];
+	uint8_t const * current_string;
+	unsigned int a = 0;
+	while (a < n_mnemonic_args) {
+		struct instruction_args_infos arg = instruction->args[a];
+		switch(arg.type) {
+			case arg_invalid: 
+				current_string = &empty_buffer; break;
+			case arg_condition:
+				current_string = conditions_strings[arg.value];
+				break;
+			case arg_register:
+				current_string = register_names[arg.value];
+				break;
+			case arg_immediate:
+				snprintf(to_string_buffer, 31, "%d", arg.value);
+				current_string = &to_string_buffer;
+				break;
+			case arg_address:
+				snprintf(to_string_buffer, 11, "0x%08x", arg.value);
+				current_string = &to_string_buffer;
+				break;
+			case arg_data_symbol_address:
+			case arg_data_symbol_address_top16:
+			case arg_data_symbol_address_bottom16:
+			case arg_data_symbol_size:
+			case arg_frame_address:
+			case arg_frame_address_pc_relative:
+				snprintf(to_string_buffer, 31, "%d", arg.value);
+				current_string = &to_string_buffer;
+				break;
+			case arg_regmask:
+				snprintf(to_string_buffer, 34, "%b", arg.value);
+				current_string = &to_string_buffer;
+				break;
+		}
+		int current_x = text_offset.x_offset;
+		buffer += myy_single_string_to_quads(
+			glyph_infos, current_string, buffer, &text_offset
+		);
+		add_hitbox(
+			current_x - 6, text_offset.x_offset + 6, y_offset, y_offset+line_height
+		);
+		text_offset.x_offset += 12;
+		a++;
 	}
-	return x_offset_px;
+	while (a < MAX_ARGS) {
+		add_invalid_hitbox();
+		a++;
+	}
+	return offset_between((uintptr_t) cpu_buffer, (uintptr_t) buffer);
+}
+
+unsigned int test_frame_quads = 0;
+void generate_test_frame_quads
+(struct glyph_infos const * __restrict const glyph_infos,
+ struct armv7_text_frame const * __restrict const text_frame,
+ uint32_t y_offset, GLuint const buffer_id,
+ unsigned int buffer_offset)
+{
+	
+	unsigned int n_instructions =
+		text_frame->metadata.stored_instructions;
+	test_frame_hitboxes.n_hitboxes = 0;
+	test_frame_hitboxes.hitboxes = allocate_durable_memory(
+		sizeof(struct frame_hitbox) * text_frame->metadata.max_instructions * 4
+	);
+	test_frame_hitboxes.max_hitboxes = n_instructions * 4;
+	uint32_t current_offset = 0;
+	
+	unsigned int size_used = 0;
+	for (unsigned int i = 0; i < n_instructions; i++) {
+		size_used += generate_instruction_quads(
+			glyph_infos, text_frame->instructions+i,
+			scratch_buffer+size_used, current_offset
+		);
+		current_offset += y_offset;
+	}
+
+	glBindBuffer(GL_ARRAY_BUFFER, buffer_id);
+	glBufferSubData(
+		GL_ARRAY_BUFFER, buffer_offset, size_used, scratch_buffer
+	);
+
+	LOG("[generate_test_frame_quads]\n  size_used : %d\n", size_used);
+	test_frame_quads = size_used / sizeof(US_two_tris_quad_3D);
 }
 
 static void prepare_string
 (struct glyph_infos const * __restrict const glyph_infos,
  uint32_t const * __restrict const string,
  unsigned int const n_characters,
- US_two_tris_quad_3D * __restrict const quads) {
-
-	int16_t x_offset = 0;
-	for (unsigned int i = 0; i < n_characters; i++)
-		x_offset = myy_copy_glyph(glyph_infos, string[i], quads+i, x_offset);
-
+ US_two_tris_quad_3D * __restrict const quads)
+{
+	myy_codepoints_to_glyph_twotris_quads_window_coords(
+	  glyph_infos, string, n_characters, quads
+	);
 }
 
-US_two_tris_quad_3D quads[90];
-
 void myy_init_drawing() {
-	GLuint program =
-	  glhSetupAndUse("shaders/standard.vert", "shaders/standard.frag",
-	                 n_attrs /* attributes */, "xyz\0in_st\0");
-	glhUploadTextures("textures/super_bitmap.raw", n_textures,
-	                  textures_id);
-	glEnableVertexAttribArray(attr_xyz);
-	glEnableVertexAttribArray(attr_st);
-	glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-	glUniform1i(glGetUniformLocation(program, "st"), GL_TEXTURE0);
+	
+	glhBuildAndSaveSimpleProgram(
+	  &glsl_shared_data,
+	  standard_vsh, standard_fsh,
+	  glsl_program_standard
+	);
+	glhBuildAndSaveSimpleProgram(
+	  &glsl_shared_data,
+	  node_vsh, node_fsh,
+	  glsl_program_node
+	);
+	glhBuildAndSaveSimpleProgram(
+		&glsl_shared_data,
+		fixed_widgets_vsh, fixed_widgets_fsh,
+		glsl_program_fixed_widgets
+	);
 
+	GLuint textures_id[n_textures_id];
+	glhUploadMyyRawTextures(
+	  "textures/fonts.raw\0"
+	  "textures/cursor.raw\0"
+		"textures/menus.raw",
+	  n_textures_id,
+	  textures_id
+	);
+	glhActiveTextures(textures_id, 3);
+
+	struct graphical_node_metadata nodes[2] = {
+		[0] = {
+			.x = 1280/2 - 100,
+			.y = 720/2 - 50,
+			.width = 400,
+			.height = 100
+		},
+		[1] = {
+			.x = -100,
+			.y = -100,
+			.width = 300,
+			.height = 700
+		}
+	};
+
+	generate_nodes_containers(nodes, 2, nodes_gl_coords);
 	myy_parse_packed_fonts(&myy_glyph_infos, "data/codepoints.dat");
-	/*myy_copy_glyph(&myy_glyph_infos, L'a', quads, 0);
-	myy_copy_glyph(&myy_glyph_infos, L'p', quads+1, 12*51);*/
-	prepare_string(&myy_glyph_infos, L"add r0, r1", 10, quads);
 
+	// 0x2000 and 0x4000 are arbitrary sizes (8 KB and 16 KB)
+	// (8 KiB and 16 KiB using SI notation)
+	glGenBuffers(1, static_menu_parts_buffer);
+	glBindBuffer(GL_ARRAY_BUFFER, static_menu_parts_buffer[0]);
+	glBufferData(GL_ARRAY_BUFFER, 0x2000, (uint8_t *) 0, GL_DYNAMIC_DRAW);
+
+	enum { context_menu_background, context_menu_close_button, n_context_menu_elements };
+	US_two_tris_quad_3D context_menu_elements[n_context_menu_elements] = {
+		[context_menu_background] =
+		  /*         pixels      layer (1/1024)  UV (norm Unsigned Short) */
+			STXYZ_QUAD(0, 200, 0, 720, 1, 40000, 40000, 40000, 40000),
+		[context_menu_close_button] =
+			STXYZ_QUAD(200-32, 200, 0, 32, 0, 0, 8191, 256, 8191)
+	};
+	
+	glBufferSubData(
+		GL_ARRAY_BUFFER, 0, sizeof(US_two_tris_quad_3D)*n_context_menu_elements,
+		context_menu_elements
+	);
+
+	glGenBuffers(2, context_menu_text_buffer);
+	glBindBuffer(GL_ARRAY_BUFFER, context_menu_text_buffer[0]);
+	glBufferData(GL_ARRAY_BUFFER, 0x4000, (uint8_t *) 0, GL_DYNAMIC_DRAW);
+	glBindBuffer(GL_ARRAY_BUFFER, context_menu_text_buffer[1]);
+	glBufferData(GL_ARRAY_BUFFER, 0x4000, (uint8_t *) 0, GL_DYNAMIC_DRAW);
+
+	prepare_context_menu_with(
+		context_menu_text_buffer, &myy_glyph_infos, mnemonics_full_desc,
+		n_known_instructions, 32
+	);
+
+	glGenBuffers(1, test_frame_gpu_buffer);
+	glBindBuffer(GL_ARRAY_BUFFER, test_frame_gpu_buffer[0]);
+	glBufferData(GL_ARRAY_BUFFER, 0x2000, (uint8_t *) 0, GL_DYNAMIC_DRAW);
+	
+	generate_test_frame_quads(
+		&myy_glyph_infos, prepare_test_frame(), 24,
+		test_frame_gpu_buffer[0], 0
+	);
+	
+	glEnable(GL_DEPTH_TEST);
+	//glEnable(GL_CULL_FACE);
+
+	LOG("After nodes to GPU\n");
+}
+
+
+int offset[4] = {0};
+struct norm_offset { GLfloat x, y; };
+struct norm_offset normalised_offset() {
+	struct norm_offset norm_offset = {
+		.x = (float) offset[0] / screen_width,
+		.y = (float) offset[1] / screen_height
+	};
+	return norm_offset;
+};
+
+void set_test_frame_mnemonic(unsigned int const id) {
+	instruction_mnemonic_id(test_frame->instructions+current_inst_id, id);
+	generate_test_frame_quads(
+		&myy_glyph_infos, test_frame, 24, test_frame_gpu_buffer[0], 0
+	);
 }
 
 void myy_draw() {
+
 	glClear( GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT );
-	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+	glClearColor(0.1f, 0.3f, 0.5f, 1.0f);
 
-	glVertexAttribPointer(attr_xyz, 3, GL_SHORT, GL_TRUE,
-	                      sizeof(struct US_textured_point_3D),
-	                      (uint8_t *)
-	                      (quads)+offsetof(struct US_textured_point_3D, x));
-	glVertexAttribPointer(attr_st, 2, GL_UNSIGNED_SHORT, GL_TRUE,
-	                      sizeof(struct US_textured_point_3D),
-	                      (uint8_t *)
-	                      (quads)+offsetof(struct US_textured_point_3D, s));
+	GLuint * glsl_programs = glsl_shared_data.programs;
+	struct norm_offset norm_offset = normalised_offset();
 
-	glDrawArrays(GL_TRIANGLES, 0, 6 * 10);
+	// Context menu
+	draw_context_menu(
+		glsl_programs,
+		static_menu_parts_buffer, context_menu_text_buffer
+	);
+
+	glBindBuffer(GL_ARRAY_BUFFER, 0);
+	/* Nodes */
+	glUseProgram(glsl_programs[glsl_program_node]);
+	glUniform1i(node_shader_unif_sampler, 0);
+	glUniform1f(node_shader_unif_layer, 0.4f);
+	glUniform4f(node_shader_unif_px_offset, offset[2], offset[3],0,0);
+	glEnableVertexAttribArray(node_shader_attr_xyz);
+	glEnableVertexAttribArray(node_shader_attr_st);
+	glVertexAttribPointer(
+		node_shader_attr_xyz, 2, GL_INT, GL_FALSE,
+		sizeof(struct UIS_2D_point),
+		(uint8_t *) nodes_gl_coords+offsetof(struct UIS_2D_point, x)
+	);
+	glVertexAttribPointer(
+		node_shader_attr_st, 2, GL_UNSIGNED_SHORT, GL_TRUE,
+		sizeof(struct UIS_2D_point),
+		(uint8_t *) nodes_gl_coords+offsetof(struct UIS_2D_point, s)
+	);
+	glDrawArrays(GL_TRIANGLES, 0, 42*2);
+
+	/* Text */
+	glGetError();
+	glUniform1f(node_shader_unif_layer, 0.1f);
+	glUniform4f(node_shader_unif_px_offset, offset[2], offset[3],-80,-80);
+	glBindBuffer(GL_ARRAY_BUFFER, test_frame_gpu_buffer[0]);
+	glVertexAttribPointer(
+		node_shader_attr_xyz, 3, GL_SHORT, GL_FALSE,
+		sizeof(struct US_textured_point_3D),
+		(uint8_t *) (offsetof(struct US_textured_point_3D, x))
+	);
+	
+	glVertexAttribPointer(
+		node_shader_attr_st, 2, GL_UNSIGNED_SHORT, GL_TRUE,
+		sizeof(struct US_textured_point_3D),
+		(uint8_t *) (offsetof(struct US_textured_point_3D, s))
+	);
+	
+	glDrawArrays(GL_TRIANGLES, 0, 6*test_frame_quads);
+
+	// Lines
+	glUseProgram(glsl_programs[glsl_program_standard]);
+	glEnableVertexAttribArray(attr_xyz);
+	glUniform2f(unif_offset, norm_offset.x, norm_offset.y);
+	glBindBuffer(GL_ARRAY_BUFFER, segment_buffer);
+	glVertexAttribPointer(attr_xyz, 2, GL_FLOAT, GL_FALSE, 0, 0);
+	glLineWidth(2);
+	glDrawArrays(GL_LINES, 0, 320);
+}
+
+void myy_rel_mouse_move(int x, int y) {
+}
+
+void myy_mouse_action(enum mouse_action_type type, int value) {
 }
 
 void myy_save_state(struct myy_game_state * const state) {}
@@ -194,8 +775,59 @@ void myy_cleanup_drawing() {}
 
 void myy_stop() {}
 
-void myy_click(int x, int y, unsigned int button) {}
+int16_t last_x, last_y;
+void myy_click(int x, int y, unsigned int button) {
+	last_x = x;
+	last_y = y;
+	//display_context_menu ^= 1;
+	int win_y = 720 - y;
+	int offseted_x = x - offset[2];
+	int offseted_y = win_y - offset[3];
+	
+	LOG("coords : %d, %d\noffsets : %d, %d\nresults : %d, %d\n",
+	    x, win_y, offset[2], offset[3], offseted_x, offseted_y);
+	
+	if (offseted_x > -100 && offseted_x < 200 &&
+		  offseted_y > -100 && offseted_y < 600)
+	{
+		struct hitcheck_result hitbox_check =
+			got_hitbox(&test_frame_hitboxes, offseted_x+80, offseted_y+80);
+			
+		if (hitbox_check.hit) react_on_hitbox(hitbox_check.id);
+	}
+		
+	
+	manage_current_menu_click(x, win_y);
+}
+
 void myy_doubleclick(int x, int y, unsigned int button) {}
-void myy_move(int x, int y) {}
-void myy_hover(int x, int y) {}
-void myy_key(unsigned int keycode) {}
+void myy_move(int x, int y, int start_x, int start_y) {
+	int32_t delta_x = x - last_x;
+	int32_t delta_y = y - last_y;
+	int32_t new_offset_x = (offset[0] + delta_x) % 50;
+	int32_t new_offset_y = (offset[1] + delta_y) % 50;
+  offset[0] = new_offset_x;
+	offset[1] = new_offset_y;
+	offset[2] += delta_x;
+	offset[3] -= delta_y;
+	last_x = x;
+	last_y = y;
+}
+void myy_hover(int x, int y) {
+}
+
+#define MYY_KP_7 79
+#define MYY_KP_8 80
+#define MYY_KP_9 81
+#define MYY_KP_MINUS 82
+#define MYY_KP_4 83
+#define MYY_KP_5 84
+#define MYY_KP_6 85
+#define MYY_KP_PLUS 86
+#define MYY_KP_1 87
+#define MYY_KP_2 88
+#define MYY_KP_3 89
+
+void myy_key(unsigned int keycode) {
+}
+
