@@ -1,6 +1,6 @@
 #version 310 es
 
-precision highp float;
+precision mediump float;
 
 out vec4 fragmentColor;
 
