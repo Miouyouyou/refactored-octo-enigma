@@ -19,6 +19,7 @@ set(MyyProjectSources
     myy.c
     src/nodes.c
     src/menus.c
+    src/generated/opengl/data_config.c
     ${MyyDumbAssemblerSources}
    )
 
@@ -43,15 +44,20 @@ set(MyyProjectLibDeps
 
 set(MyyShaders
     shaders/standard.frag
-    shaders/standard.vert)
+    shaders/standard.vert
+    shaders/node.frag
+    shaders/node.vert
+    shaders/color_node.frag
+    shaders/color_node.vert)
 set(MyyData
-    data/codepoints.dat)
+    data/codepoints.dat
+    data/shaders.pack)
 set(MyyTextures
     textures/fonts.raw
     textures/cursor.raw
     textures/menus.raw)
 set(MyyDocumentation
-	  README.md)
+   )
 add_custom_target(Shaders  SOURCES ${MyyShaders})
 add_custom_target(Textures SOURCES ${MyyTextures})
 add_custom_target(Data     SOURCES ${MyyData})

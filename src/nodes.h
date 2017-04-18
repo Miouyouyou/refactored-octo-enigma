@@ -3,28 +3,33 @@
 
 #include <stdint.h>
 #include <myy/helpers/struct.h>
+#include <myy/current/opengl.h>
+#include <myy/helpers/opengl/quads_structures.h>
 
 #define CORNER_SIZE 10 // pixels
 
 // Data types ----------------------------------------------------------
 
-struct graphical_node_metadata {
-	int32_t x, y;
-	int16_t width, height;
+struct node_container_metadata {
+	uint16_t width, height; int32_t buffer_offset;
 };
 
-struct UIS_2D_point {
-	int32_t x, y;
-	uint16_t s, t;
-} __PALIGN__;
-struct UIS_2D_triangle {
-	struct UIS_2D_point a, b, c;
-} __PALIGN__;
-union UIS_2D_two_tris_quad {
-	int32_t xyST[18]; // x : int32, y : int32, s : uint16, t : uint16
-	struct UIS_2D_point points[6];
-	struct UIS_2D_triangle triangles[2];
-} __PALIGN__;
+struct node_contents_metadata {
+	int16_t x, y; GLuint buffer_offset, quads;
+};
+struct nodes_containers {
+	GLuint buffer_id, buffer_offset;
+	uint16_t quads, n_nodes;
+	struct node_container_metadata metadata[128];
+};
+struct nodes_contents {
+	GLuint buffer_id;
+	struct node_contents_metadata metadata[128];
+};
+struct nodes_display_data {
+	struct nodes_containers containers;
+	struct nodes_contents contents;
+};
 
 struct round_borders_rectangle {
 	uint16_t rel_x, rel_y, width, height;
@@ -41,18 +46,21 @@ enum rectangle_lateral_borders {
 };
 
 struct gpu_round_corners_rect {
-	union UIS_2D_two_tris_quad
-		main_body, lateral_borders[n_lateral_borders_in_rectangle];
-	union UIS_2D_two_tris_quad corners[n_round_corners_in_rectangle];
+	SuB_2t_colored_quad title_bar, main_body;
 };
 
 typedef struct gpu_round_corners_rect gpu_node_representation;
 
 // Procedures definitions ----------------------------------------------
 
-void generate_nodes_containers
-(struct graphical_node_metadata const * __restrict const nodes,
- unsigned int const n_nodes,
- gpu_node_representation * __restrict const output);
+struct generated_quads generate_and_store_nodes_containers_in_gpu
+(struct nodes_display_data * __restrict const nodes,
+ uint8_t * __restrict const cpu_buffer,
+ GLuint const buffer_id, GLuint const buffer_offset);
+
+void draw_nodes
+(struct nodes_display_data * __restrict const nodes,
+ GLuint const * __restrict const programs,
+ int16_t const global_offset_x, int16_t const global_offset_y);
 
 #endif
