@@ -20,7 +20,10 @@
 // ----- Variables ----------------------------------------
 
 struct nodes_display_data nodes_display_data = {0};
-
+struct quads_and_size {
+	struct generated_quads quads;
+	struct text_offset size;
+};
 struct glsl_programs_shared_data glsl_shared_data = {0};
 
 #define MANAGED_CODEPOINTS 512
@@ -200,7 +203,7 @@ GLuint screen_width = 0, screen_height = 0;
 // Menu
 uint8_t scratch_buffer[0x4000] __attribute__((aligned(32)));
 
-
+struct dropdown_menus ga_menus = {0};
 // ----- Code ---------------------------------------------
 
 static void add_inst
@@ -231,11 +234,13 @@ static uint32_t id_gen() {
 	return returned_id;
 }
 
-struct armv7_text_frame * __restrict test_frame;
-static struct armv7_text_frame * prepare_test_frame_insts() {
-	test_frame = generate_armv7_text_frame(id_gen);
+struct armv7_text_frame * __restrict test_frames[2];
+static struct armv7_text_frame ** prepare_test_frame_insts() {
+	struct armv7_text_frame * __restrict const test_frame =
+		generate_armv7_text_frame(id_gen);
 	
 	uint32_t const hamster_id = 9;
+	test_frame->metadata.name = "Meow";
 	add_inst(
 		test_frame,
 		inst_mov_immediate, arg_register, r0, arg_immediate, 0, 0, 0
@@ -289,7 +294,36 @@ static struct armv7_text_frame * prepare_test_frame_insts() {
 		0, 0
 	);
 	
-	return test_frame;
+	test_frames[0] = test_frame;
+	
+	struct armv7_text_frame * __restrict const exit_frame =
+		generate_armv7_text_frame(id_gen);
+	exit_frame->metadata.name = "Exit";
+	add_inst(
+		exit_frame,
+		inst_mov_immediate, arg_register, r0, arg_immediate, 0, 0, 0
+	);
+	
+	add_inst(
+		exit_frame,
+		inst_mov_immediate,
+		arg_register, r7,
+		arg_immediate, 1,
+		0, 0
+	);
+	
+	add_inst(
+		exit_frame,
+		inst_svc_immediate,
+		arg_immediate, 0,
+		0, 0,
+		0, 0
+	);
+	
+	test_frames[1] = exit_frame;
+	
+	
+	return test_frames;
 }
 
 void myy_init() {}
@@ -324,6 +358,11 @@ static void generer_segment_chaque_n_pixels
 }
 
 void myy_display_initialised(unsigned int width, unsigned int height) {
+	LOG(
+		"[myy_display_initialised]\n  width : %u, height : %u\n",
+		width, height
+	);
+	glViewport(0, 0, width, height);
 	generer_segment_chaque_n_pixels(segments, 50, width, height);
 	screen_width = width / 2;
 	screen_height = height / 2;
@@ -384,32 +423,6 @@ struct hitcheck_result {
 	unsigned int id;
 };
 
-static struct hitcheck_result got_hitbox
-(struct frame_hitboxes * hitboxes, int x, int y)
-{
-	unsigned int h = 0; 
-	unsigned int n_hitboxes = hitboxes->n_hitboxes;
-	while (h < n_hitboxes) {
-		struct frame_hitbox current_hitbox = hitboxes->hitboxes[h];
-		if (x < current_hitbox.x_left || x > current_hitbox.x_right ||
-			  y < current_hitbox.y_up || y > current_hitbox.y_down)
-			h++;
-		else
-			break;
-	}
-	
-	struct hitcheck_result result = {
-		.hit = (h != n_hitboxes),
-		.id = h
-	};
-	
-	return result;
-}
-
-static inline void add_invalid_hitbox() {
-	add_hitbox(0xffff,0xffff,0xffff,0xffff);
-}
-
 struct instruction_from_hitbox {
 	unsigned int i;
 	unsigned int arg_i;
@@ -424,24 +437,18 @@ static struct instruction_from_hitbox infer_instruction_from_hitbox_id
 	
 	return result;
 }
-static void react_on_hitbox(unsigned int const id)
+static void node_frame_click
+(struct nodes_display_data * __restrict const nodes,
+ unsigned int index,
+ int const x, int const y)
 {
-	struct instruction_from_hitbox inst_infos =
-		infer_instruction_from_hitbox_id(id);
-	if (id % 4 == 0) enable_context_menu();
+	set_current_dropdown_menu(&ga_menus, ga_dropdown_menu_instructions);
+	enable_context_menu();
 	LOG(
-		"%04x: %s (arg : %d)\n", id * 4,
-		mnemonics[test_frame->instructions[inst_infos.i].mnemonic_id],
-		inst_infos.arg_i
+		"Meep : %d - rel_x: %d, rel_y: %d (%d)\n",
+		index, x, y, (y-6)/20
 	);
-	current_inst_id = inst_infos.i;
-	current_arg_id = inst_infos.arg_i;
 }
-
-struct quads_and_size {
-	struct generated_quads quads;
-	struct text_offset size;
-};
 
 struct quads_and_size generate_instruction_quads
 (struct glyph_infos const * __restrict const glyph_infos,
@@ -558,7 +565,7 @@ struct quads_and_size generate_frame_quads
 	unsigned int const y_offset = 20;
 	unsigned int n_instructions =
 		text_frame->metadata.stored_instructions;
-	uint32_t text_pos_y = 0;
+	uint32_t text_pos_y = 24;
 	struct quads_and_size total = {0};
 	struct quads_and_size instruction_quads;
 
@@ -579,63 +586,84 @@ struct quads_and_size generate_frame_quads
 	return total;
 }
 
-static void prepare_string
-(struct glyph_infos const * __restrict const glyph_infos,
- uint32_t const * __restrict const string,
- unsigned int const n_characters,
- US_two_tris_quad_3D * __restrict const quads)
-{
-	myy_codepoints_to_glyph_twotris_quads_window_coords(
-	  glyph_infos, string, n_characters, quads
-	);
-}
-
-struct dropdown_menus_infos ga_menus[n_ga_menus] = {0};
-
 void dropdown_menu_hit_func(unsigned int i) {
   LOG("%d\n", i);
 }
 
 struct swap_menu_infos swap_menu_infos = {0};
 
+struct quads_and_size set_node_title
+(uint8_t const * __restrict const title,
+ struct glyph_infos const * __restrict const glyph_infos,
+ uint8_t * __restrict const cpu_buffer)
+{
+	struct quads_and_size text_quads_and_size = {
+		.quads = {.size = 0, .count = 0},
+		.size = {.x_offset = 0, .y_offset = 0}
+	};
+
+	struct generated_quads quads = myy_single_string_to_quads(
+		glyph_infos, title, cpu_buffer, &text_quads_and_size.size
+	);
+	text_quads_and_size.quads.size  = quads.size;
+	text_quads_and_size.quads.count = quads.count;
+	return text_quads_and_size;
+}
+
 void generate_frames_quads
-(struct armv7_text_frame const * __restrict const text_frames,
- unsigned int n_frames,
- GLuint const gpu_buffer_id,
- GLuint const gpu_buffer_offset,
+(struct armv7_text_frame const ** __restrict const text_frames,
+ unsigned int const n_frames,
  struct nodes_display_data * __restrict const display_data)
 {
-	unsigned int cpu_buffer_offset = 0;
+	unsigned int cpu_buffer_size = 0;
+	unsigned int gpu_buffer_offset = display_data->contents.buffer_offset;
+
 	for (unsigned int f = 0; f < n_frames; f++) {
+		unsigned int current_content_quads = 0;
 		struct node_container_metadata * const current_container_info =
 			display_data->containers.metadata+f;
 		struct node_contents_metadata * const current_content_info =
 			display_data->contents.metadata+f;
 		struct armv7_text_frame const * __restrict const current_frame =
-			text_frames+f;
-		
-		struct quads_and_size frame_quads = generate_frame_quads(
-			current_frame, scratch_buffer, cpu_buffer_offset
-		);
-
-		current_container_info->width  = frame_quads.size.x_offset;
-		current_container_info->height = frame_quads.size.y_offset;
-
+			text_frames[f];
 		current_content_info->buffer_offset =
-			gpu_buffer_offset + cpu_buffer_offset;
-		current_content_info->quads = frame_quads.quads.count;
+			gpu_buffer_offset + cpu_buffer_size;
 		
-		cpu_buffer_offset  += frame_quads.quads.size;
+		struct quads_and_size const title_quads = set_node_title(
+			current_frame->metadata.name, &myy_glyph_infos,
+			scratch_buffer+cpu_buffer_size
+		);
+		
+		current_content_quads += title_quads.quads.count;
+		cpu_buffer_size += title_quads.quads.size;
+		unsigned int const title_width = title_quads.size.x_offset;
+		
+		struct quads_and_size const frame_quads = generate_frame_quads(
+			current_frame, scratch_buffer, cpu_buffer_size
+		);
+		
+		current_content_quads += frame_quads.quads.count;
+		cpu_buffer_size  += frame_quads.quads.size;
+		unsigned int const content_width  = frame_quads.size.x_offset;
+		unsigned int const content_height = frame_quads.size.y_offset;
+		
+
+		current_container_info->width  =
+			(content_width > title_width ? content_width : title_width);
+		current_container_info->height = content_height;
+		current_container_info->handler_func_id = 0;
+		current_content_info->quads = current_content_quads;
 	}
 	
 	display_data->containers.n_nodes += n_frames;
-	display_data->contents.buffer_id = gpu_buffer_id;
-	glBindBuffer(GL_ARRAY_BUFFER, gpu_buffer_id);
+	glBindBuffer(GL_ARRAY_BUFFER, display_data->contents.buffer_id);
 	glBufferSubData(
-		GL_ARRAY_BUFFER, gpu_buffer_offset, cpu_buffer_offset,
+		GL_ARRAY_BUFFER, gpu_buffer_offset, cpu_buffer_size,
 		scratch_buffer
 	);
 }
+
+#define SWAP_MENUS_BUFFER_OFFSET 0x80000
 
 void myy_init_drawing() {
 	
@@ -678,68 +706,81 @@ void myy_init_drawing() {
 	// (8 KiB and 16 KiB using SI notation)
 	glGenBuffers(1, static_menu_parts_buffer);
 	glBindBuffer(GL_ARRAY_BUFFER, static_menu_parts_buffer[0]);
-	glBufferData(GL_ARRAY_BUFFER, 0x2000, (uint8_t *) 0, GL_DYNAMIC_DRAW);
-
-	prepare_static_menu_parts();
-
-	glGenBuffers(2, context_menu_text_buffer);
+	glBufferData(GL_ARRAY_BUFFER, 0x2000, (uint8_t *) 0, GL_STATIC_DRAW);
+	glGenBuffers(1, context_menu_text_buffer);
 	glBindBuffer(GL_ARRAY_BUFFER, context_menu_text_buffer[0]);
-	glBufferData(GL_ARRAY_BUFFER, 0x4000, (uint8_t *) 0, GL_DYNAMIC_DRAW);
-	glBindBuffer(GL_ARRAY_BUFFER, context_menu_text_buffer[1]);
-	glBufferData(GL_ARRAY_BUFFER, 0x4000, (uint8_t *) 0, GL_DYNAMIC_DRAW);
+	glBufferData(GL_ARRAY_BUFFER, 0xf0000, (uint8_t *) 0, GL_DYNAMIC_DRAW);
 
-	/*prepare_context_menu_with(
-		context_menu_text_buffer, &myy_glyph_infos, mnemonics_full_desc,
-		n_known_instructions, 32
-	);*/
-	setup_menu(
-		ga_menus, ga_dropdown_menu_instructions, mnemonics_full_desc,
+	set_menu_buffers_and_offsets(
+		&ga_menus.gl_infos,
+		context_menu_text_buffer[0],
+		0x0000,
+		static_menu_parts_buffer[0],
+		0x0000
+	);
+	set_menu_buffers_and_offsets(
+		&swap_menu_infos.gl_infos,
+		context_menu_text_buffer[0],
+		0x80000,
+		static_menu_parts_buffer[0],
+		0x0000
+	);
+	
+	setup_dropdown_menu(
+		&ga_menus, ga_dropdown_menu_instructions, mnemonics_full_desc,
     n_known_instructions, dropdown_menu_hit_func
 	);
-	setup_menu(
-		ga_menus, ga_dropdown_menu_registers, register_names,
+	setup_dropdown_menu(
+		&ga_menus, ga_dropdown_menu_registers, register_names,
 		16, dropdown_menu_hit_func
 	);
-	setup_menu(
-		ga_menus, ga_dropdown_menu_frame_names, register_names, 0,
+	setup_dropdown_menu(
+		&ga_menus, ga_dropdown_menu_frame_names, register_names, 0,
 		dropdown_menu_hit_func
 	);
-	setup_menu(
-		ga_menus, ga_dropdown_menu_conditions, conditions_strings, 15,
+	setup_dropdown_menu(
+		&ga_menus, ga_dropdown_menu_conditions, conditions_strings, 15,
 		dropdown_menu_hit_func
 	);
 	regenerate_menus(
-		ga_menus, context_menu_text_buffer[0], &myy_glyph_infos
+		&ga_menus, &myy_glyph_infos
 	);
 	
 	set_swap_menu_title(
-		&swap_menu_infos, context_menu_text_buffer[0],
+		&swap_menu_infos,
 		"Hello", &myy_glyph_infos
 	);
 
 	set_swap_menu_listings(
-		&swap_menu_infos, context_menu_text_buffer[0],
+		&swap_menu_infos,
 		n_known_instructions, 0,
 		mnemonics_full_desc, conditions_strings,
 		&myy_glyph_infos
 	);
 	
+	prepare_static_menu_parts(&ga_menus.gl_infos);
 
 	glGenBuffers(1, test_frame_gpu_buffer);
 	glBindBuffer(GL_ARRAY_BUFFER, test_frame_gpu_buffer[0]);
-	glBufferData(GL_ARRAY_BUFFER, 0x2000, (uint8_t *) 0, GL_DYNAMIC_DRAW);
+	glBufferData(
+		GL_ARRAY_BUFFER, 0xf0000, (uint8_t *) 0, GL_DYNAMIC_DRAW
+	);
 	
 	prepare_test_frame_insts();
-	generate_frames_quads(
-		test_frame,
-		1,
+	set_nodes_buffers(
+		&nodes_display_data,
 		test_frame_gpu_buffer[0],
-		0, &nodes_display_data
+		0x0000,
+		test_frame_gpu_buffer[0],
+		0x4000
 	);
+	nodes_set_handler_func(&nodes_display_data, 0, node_frame_click);
+	generate_frames_quads(test_frames, 2, &nodes_display_data);
 	generate_and_store_nodes_containers_in_gpu(
-		&nodes_display_data, scratch_buffer,
-		test_frame_gpu_buffer[0], 0x1000
+		&nodes_display_data, scratch_buffer
 	);
+	set_node_position(&nodes_display_data, 0,   0,   0, scratch_buffer);
+	set_node_position(&nodes_display_data, 1, 400, 400, scratch_buffer);
 	glEnable(GL_DEPTH_TEST);
 
 	LOG("After nodes to GPU\n");
@@ -774,15 +815,8 @@ void myy_draw() {
 	struct norm_offset norm_offset = normalised_offset();
 
 	// Context menu
-	draw_current_context_menu(
-		ga_menus, glsl_programs,
-		static_menu_parts_buffer[0], context_menu_text_buffer[0]
-	);
-	draw_swap_menu(
-		&swap_menu_infos, glsl_programs,
-		context_menu_text_buffer[0], 
-		static_menu_parts_buffer[0]
-	);
+	draw_current_context_menu(&ga_menus, glsl_programs);
+	draw_swap_menu(&swap_menu_infos, glsl_programs);
 
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
 	/* Nodes */
@@ -814,6 +848,7 @@ void myy_cleanup_drawing() {}
 
 void myy_stop() {}
 
+uint8_t moving_node = 0;
 int16_t last_x, last_y;
 void myy_click(int x, int y, unsigned int button) {
 	last_x = x;
@@ -825,31 +860,29 @@ void myy_click(int x, int y, unsigned int button) {
 	LOG("coords : %d, %d\noffsets : %d, %d\nresults : %d, %d\n",
 	    x, y, offset[2], offset[3], offseted_x, offseted_y);
 	
-	if (offseted_x > -100 && offseted_x < 200 &&
-		  offseted_y > -100 && offseted_y < 600)
-	{
-		struct hitcheck_result hitbox_check =
-			got_hitbox(&test_frame_hitboxes, offseted_x+80, offseted_y+80);
-			
-		if (hitbox_check.hit) react_on_hitbox(hitbox_check.id);
-	}
-		
-	
-	manage_current_menu_click(ga_menus, x, y);
+	if (!manage_current_menu_click(&ga_menus, x, y))
+		nodes_handle_click(&nodes_display_data, offseted_x, offseted_y);
+
 }
 
 void myy_doubleclick(int x, int y, unsigned int button) {}
+
 void myy_move(int x, int y, int start_x, int start_y) {
-	int32_t delta_x = x - last_x;
-	int32_t delta_y = y - last_y;
-	int32_t new_offset_x = (offset[0] + delta_x) % 50;
-	int32_t new_offset_y = (offset[1] - delta_y) % 50;
-  offset[0] = new_offset_x;
-	offset[1] = new_offset_y;
-	offset[2] += delta_x;
-	offset[3] += delta_y;
-	last_x = x;
-	last_y = y;
+	unsigned int has_moved_node = nodes_handle_move(
+		&nodes_display_data, x-offset[2], y-offset[3], scratch_buffer
+	);
+	if (!has_moved_node) {
+		int32_t delta_x = x - last_x;
+		int32_t delta_y = y - last_y;
+		int32_t new_offset_x = (offset[0] + delta_x) % 50;
+		int32_t new_offset_y = (offset[1] - delta_y) % 50;
+		offset[0] = new_offset_x;
+		offset[1] = new_offset_y;
+		offset[2] += delta_x;
+		offset[3] += delta_y;
+		last_x = x;
+		last_y = y;
+	}
 }
 void myy_hover(int x, int y) {
 }
@@ -870,11 +903,11 @@ void myy_key(unsigned int keycode) {
 	switch (keycode) {
 		case MYY_KP_1:
 			//show_registers_context_menu();
-			set_current_dropdown_menu(ga_dropdown_menu_registers);
+			set_current_dropdown_menu(&ga_menus, ga_dropdown_menu_registers);
 			enable_context_menu();
 		break;
 		case MYY_KP_2:
-			set_current_dropdown_menu(ga_dropdown_menu_conditions);
+			set_current_dropdown_menu(&ga_menus, ga_dropdown_menu_conditions);
 			enable_context_menu();
 		break;
 		case MYY_KP_3:
@@ -885,12 +918,19 @@ void myy_key(unsigned int keycode) {
 		break;
 		case MYY_KP_5:
 			set_swap_menu_listings(
-				&swap_menu_infos, context_menu_text_buffer[0],
-				16, 0,
-				register_names, mnemonics_full_desc,
+				&swap_menu_infos,
+				16, 14,
+				register_names, conditions_strings,
 				&myy_glyph_infos
 			);
 		break;
+		case MYY_KP_6:
+			set_swap_menu_listings(
+				&swap_menu_infos,
+				14, n_known_instructions,
+				conditions_strings, mnemonics_full_desc,
+				&myy_glyph_infos
+			);
 		default: break;
 	}
 }

@@ -9,6 +9,5 @@ out vec4 fragmentColor;
 in vec2 st;
 
 void main() {
-	vec3 alpha = vec3(texture(sampler, st).a);
-	fragmentColor = vec4(alpha,1.0);
+	fragmentColor = vec4(1.0,1.0,1.0,texture(sampler, st).a);
 }

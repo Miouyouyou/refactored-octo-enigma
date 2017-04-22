@@ -19,6 +19,7 @@ set(MyyProjectSources
     myy.c
     src/nodes.c
     src/menus.c
+    src/text.c
     src/generated/opengl/data_config.c
     ${MyyDumbAssemblerSources}
    )
