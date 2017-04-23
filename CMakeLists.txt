@@ -18,6 +18,7 @@ set(MyyDumbAssemblerSources
 set(MyyProjectSources
     myy.c
     src/nodes.c
+    src/nodes_asm.c
     src/menus.c
     src/text.c
     src/generated/opengl/data_config.c
@@ -26,7 +27,9 @@ set(MyyProjectSources
 
 set(MyyProjectHeaders
     src/nodes.h
+    src/nodes_asm.h
     src/menus.h
+    src/text.h
    )
 
 set(MyyFoldersToCopy
@@ -44,8 +47,8 @@ set(MyyProjectLibDeps
     ${FREETYPE_LIBRARIES})
 
 set(MyyShaders
-    shaders/standard.frag
-    shaders/standard.vert
+	  shaders/lines.frag
+		shaders/lines.vert
     shaders/node.frag
     shaders/node.vert
     shaders/color_node.frag

@@ -292,7 +292,7 @@ void setup_dropdown_menu
  enum ga_dropdown_menu menu,
  uint8_t const * const * const strings,
  unsigned int const n_strings,
- void (* const hitbox_func)(unsigned int hit_index))
+ void (* const hitbox_func)())
 {
 	menus->data[menu].strings = strings;
 	menus->data[menu].n_strings = n_strings;
@@ -309,8 +309,16 @@ void set_current_dropdown_menu
  enum ga_dropdown_menu current_menu_id)
 {
 	menus->current_dropdown_menu = current_menu_id;
-	
 }
+void set_current_dropdown_menu_callback
+(struct dropdown_menus * __restrict const menus,
+ void (*callback)(),
+ void * __restrict const data)
+{
+	menus->current_dropdown_callback = callback;
+	menus->current_dropdown_callback_data = data;
+}
+
 
 unsigned int const menu_x_position = 1080;
 static unsigned clicked_on_context_menu(int x, int win_y)
@@ -336,10 +344,9 @@ unsigned int manage_current_menu_click
 		unsigned int const element = (win_y - 40) / 32;
 		enum ga_dropdown_menu current_menu = menus->current_dropdown_menu;
 		struct dropdown_menu_infos const * __restrict const
-			current_menu_infos =
-				menus->data+current_menu;
+			current_menu_infos = menus->data+current_menu;
 		if (element < current_menu_infos->n_strings)
-			current_menu_infos->hitbox_func(element);
+			current_menu_infos->hitbox_func(menus, element);
 	}
 
 	return clicked_inside;

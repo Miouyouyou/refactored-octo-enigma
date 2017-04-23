@@ -7,8 +7,8 @@ struct glsl_shader {
 	uint32_t str_pos;
 };
 enum glsl_shader_name {
-	standard_vsh,
-	standard_fsh,
+	lines_vsh,
+	lines_fsh,
 	node_vsh,
 	node_fsh,
 	fixed_widgets_vsh,
@@ -19,7 +19,7 @@ enum glsl_shader_name {
 };
 
 enum glsl_program_name {
-	glsl_program_standard,
+	glsl_program_lines,
 	glsl_program_node,
 	glsl_program_fixed_widgets,
 	glsl_program_color_node,
@@ -32,14 +32,14 @@ struct glsl_programs_shared_data {
 	GLchar strings[512];
 };
 
-enum standard_shader_attributes {
-	attr_xyz,
-	attr_st,
+enum lines_shader_attributes {
+	lines_shader_attr_xyz,
 	n_attrs
 };
 
-enum standard_shader_uniforms {
-	unif_offset,
+enum lines_shader_uniforms {
+	lines_shader_unif_offset,
+	lines_shader_unif_color,
 	n_uniforms
 };
 

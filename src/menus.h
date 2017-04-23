@@ -15,7 +15,7 @@ struct dropdown_menu_infos {
 	uint16_t content_quads;
 	uint16_t n_strings;
 	uint8_t const * const * strings;
-	void (*hitbox_func)(unsigned int hit_index);
+	void (*hitbox_func)();
 };
 
 enum ga_dropdown_menu {
@@ -29,6 +29,8 @@ enum ga_dropdown_menu {
 struct dropdown_menus {
 	struct menu_gl_metadata gl_infos;
 	enum ga_dropdown_menu current_dropdown_menu;
+	void (*current_dropdown_callback)(void *, unsigned int id);
+	void * current_dropdown_callback_data;
 	struct dropdown_menu_infos data[n_ga_menus];
 };
 
@@ -48,6 +50,8 @@ void set_menu_buffers_and_offsets
  GLuint const content_buffer_id, GLuint const content_buffer_offset,
  GLuint const static_elements_buffer_id,
  GLuint const static_elements_buffer_offset);
+
+
 
 void prepare_context_menu_with
 (GLuint const * __restrict const context_menu_text_buffer,
@@ -78,7 +82,7 @@ void setup_dropdown_menu
  enum ga_dropdown_menu menu,
  uint8_t const * const * const strings,
  unsigned int const n_strings,
- void (* const hitbox_func)(unsigned int hit_index));
+ void (* const hitbox_func)());
 
 void enable_context_menu();
 void disable_context_menu();
@@ -87,6 +91,11 @@ void disable_swap_menu();
 void set_current_dropdown_menu
 (struct dropdown_menus * __restrict const menus,
  enum ga_dropdown_menu current_menu_id);
+
+void set_current_dropdown_menu_callback
+(struct dropdown_menus * __restrict const menus,
+ void (*callback)(void *, unsigned int id),
+ void * __restrict const data);
 
 unsigned int manage_current_menu_click
 (struct dropdown_menus const * __restrict const menus,

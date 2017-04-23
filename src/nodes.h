@@ -33,9 +33,12 @@ struct nodes_display_data {
 	int16_t selected_node_movable;
 	// Relative to the upper-left corner
 	int16_t selection_x_offset, selection_y_offset;
+	void (*click_handlers[4])();
+	struct dropdown_menus * current_menus;
 	struct nodes_containers containers;
 	struct nodes_contents contents;
-	void (*click_handlers[4])();
+	void * associated_data[256];
+
 };
 static unsigned int is_any_node_selected
 (struct nodes_display_data const * __restrict const nodes)

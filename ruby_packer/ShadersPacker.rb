@@ -38,5 +38,5 @@ class ShadersPacker
 end
 
 ShadersPacker.pack(
-  %w{standard node fixed_widgets color_node}, "shaders.pack"
+  %w{lines node fixed_widgets color_node}, "shaders.pack"
 )

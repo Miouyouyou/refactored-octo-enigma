@@ -280,12 +280,6 @@ int nodes_at
 			decorated_container_dimensions(node_position);
 		int node_x = node_position->x;
 		int node_y = node_position->y;
-		LOG(
-			"Checking [%d/%d] (x: %d < %d < %d y: %d < %d < %d)\n",
-			n, n_nodes,
-			node_x, x, node_x + dimensions.width,
-			node_y, y, node_y + dimensions.height
-		);
 		if (x > node_x &&
 		    x < node_x + dimensions.width &&
 		    y > node_y &&

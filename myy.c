@@ -13,17 +13,16 @@
 #include <assert.h>
 
 #include <src/nodes.h>
+#include <src/nodes_asm.h>
 #include <src/menus.h>
 
 #include <stddef.h> // offsetof
 
-// ----- Variables ----------------------------------------
 
+
+// ----- Variables ----------------------------------------
 struct nodes_display_data nodes_display_data = {0};
-struct quads_and_size {
-	struct generated_quads quads;
-	struct text_offset size;
-};
+
 struct glsl_programs_shared_data glsl_shared_data = {0};
 
 #define MANAGED_CODEPOINTS 512
@@ -39,158 +38,7 @@ struct glyph_infos myy_glyph_infos = {
 
 /*------- Assembler ---*/
 
-struct mnemonic_info {
-	uint8_t n_args;
-	uint8_t * name;
-};
-
-enum { 
-	arg_cat_invalid,
-	arg_cat_condition,
-	arg_cat_register,
-	arg_cat_immediate,
-	arg_cat_negative_immediate,
-	arg_cat_immediate_or_address,
-	arg_cat_data_address,
-	arg_cat_frame_address_pc_relative,
-	arg_cat_regmask
-};
-
-static uint8_t const mnemonics_args_type[n_known_instructions][MAX_ARGS] =
-{
-	[inst_add_immediate]  =
-		{arg_cat_register, arg_cat_register, arg_cat_immediate},
-	[inst_b_address]      =
-		{arg_cat_condition, arg_cat_frame_address_pc_relative, 0},
-	[inst_bl_address]     =
-		{arg_cat_condition, arg_cat_frame_address_pc_relative, 0},
-	[inst_blx_address]    =
-		{arg_cat_condition, arg_cat_frame_address_pc_relative, 0},
-	[inst_blx_register]   = {arg_cat_condition, arg_cat_register, 0},
-	[inst_bx_register]    = {arg_cat_condition, arg_cat_register, 0},
-	[inst_mov_immediate]  = {arg_cat_register, arg_cat_immediate, 0},
-	[inst_mov_register]   = {arg_cat_register, arg_cat_register, 0},
-	[inst_movt_immediate] = {arg_cat_register, arg_cat_immediate, 0},
-	[inst_movw_immediate] = 
-		{arg_cat_register, arg_cat_immediate_or_address, 0},
-	[inst_mvn_immediate]  = 
-		{arg_cat_register, arg_cat_negative_immediate, 0},
-	[inst_pop_regmask]    = {arg_cat_regmask, 0, 0},
-	[inst_push_regmask]   = {arg_cat_regmask, 0, 0},
-	[inst_sub_immediate]  =
-		{arg_cat_register, arg_cat_register, arg_cat_immediate},
-	[inst_svc_immediate]  = {arg_cat_immediate, 0, 0},
-};
-
-static uint8_t const * const mnemonics[n_known_instructions] = {
-	[inst_add_immediate]  = "add",
-	[inst_b_address]      = "b",
-	[inst_bl_address]     = "bl",
-	[inst_blx_address]    = "blx",
-	[inst_blx_register]   = "blx",
-	[inst_bx_register]    = "bx",
-	[inst_mov_immediate]  = "mov",
-	[inst_mov_register]   = "mov",
-	[inst_movt_immediate] = "movt",
-	[inst_movw_immediate] = "movw",
-	[inst_mvn_immediate]  = "mvn",
-	[inst_pop_regmask]    = "pop",
-	[inst_push_regmask]   = "push",
-	[inst_sub_immediate]  = "sub",
-	[inst_svc_immediate]  = "svc"
-};
-
-static uint8_t const * const
-mnemonics_full_desc[n_known_instructions] = {
-	[inst_add_immediate]  = "ADD (Immediate)",
-	[inst_b_address]      = "B",
-	[inst_bl_address]     = "BL",
-	[inst_blx_address]    = "BLX",
-	[inst_blx_register]   = "BLX (Register)",
-	[inst_bx_register]    = "BX (Register)",
-	[inst_mov_immediate]  = "MOV",
-	[inst_mov_register]   = "MOV (Register)",
-	[inst_movt_immediate] = "MOVT",
-	[inst_movw_immediate] = "MOVW",
-	[inst_mvn_immediate]  = "MVN",
-	[inst_pop_regmask]    = "POP",
-	[inst_push_regmask]   = "PUSH",
-	[inst_sub_immediate]  = "SUB (Immediate)",
-	[inst_svc_immediate]  = "SVC"
-};
-
-static uint8_t mnemonic_args[n_known_instructions] = {
-	[inst_add_immediate]  = 3,
-	[inst_b_address]      = 2,
-	[inst_bl_address]     = 2,
-	[inst_blx_address]    = 2,
-	[inst_blx_register]   = 2,
-	[inst_bx_register]    = 2,
-	[inst_mov_immediate]  = 2,
-	[inst_mov_register]   = 2,
-	[inst_movt_immediate] = 2,
-	[inst_movw_immediate] = 2,
-	[inst_mvn_immediate]  = 2,
-	[inst_pop_regmask]    = 1,
-	[inst_push_regmask]   = 1,
-	[inst_sub_immediate]  = 3,
-	[inst_svc_immediate]  = 1,
-};
-
-static uint8_t const * conditions_strings[15] = {
-	[cond_eq] = "eq",
-	[cond_ne] = "ne",
-	[cond_cs] = "cs",
-	[cond_cc] = "cc",
-	[cond_mi] = "mi",
-	[cond_pl] = "pl",
-	[cond_vs] = "vs",
-	[cond_vc] = "vc",
-	[cond_hi] = "hi",
-	[cond_ls] = "ls",
-	[cond_ge] = "ge",
-	[cond_lt] = "lt",
-	[cond_gt] = "gt",
-	[cond_le] = "le",
-	[cond_al] = "al"
-};
-
-uint8_t const * register_names[] = {
-	[r0]  = "r0",
-	[r1]  = "r1",
-	[r2]  = "r2",
-	[r3]  = "r3",
-	[r4]  = "r4",
-	[r5]  = "r5",
-	[r6]  = "r6",
-	[r7]  = "r7",
-	[r8]  = "r8",
-	[r9]  = "r9",
-	[r10] = "r10",
-	[r11] = "r11",
-	[r12] = "ip",
-	[r13] = "sp",
-	[r14] = "lr",
-	[r15] = "pc"
-};
-
 GLuint test_frame_gpu_buffer[1] = {0};
-unsigned int current_inst_id = 0;
-unsigned int current_arg_id = 0;
-
-// Hitboxes
-
-struct frame_hitbox {
-	int16_t x_left, x_right, y_up, y_down;
-};
-struct frame_hitboxes {
-	uint32_t n_hitboxes;
-	uint32_t max_hitboxes;
-	struct frame_hitbox * hitboxes;
-};
-struct frame_hitboxes test_frame_hitboxes;
-// fixed hitboxes number by element
-// hitboxes / 4 = index - hitboxes % 4 = arg
 
 // Background lines
 
@@ -200,8 +48,7 @@ struct myy_gl_segment segments[80] = {0};
 GLuint segment_buffer;
 GLuint screen_width = 0, screen_height = 0;
 
-// Menu
-uint8_t scratch_buffer[0x4000] __attribute__((aligned(32)));
+uint8_t scratch_buffer[0x100000] __attribute__((aligned(32)));
 
 struct dropdown_menus ga_menus = {0};
 // ----- Code ---------------------------------------------
@@ -326,6 +173,7 @@ static struct armv7_text_frame ** prepare_test_frame_insts() {
 	return test_frames;
 }
 
+
 void myy_init() {}
 
 static void generer_segment_chaque_n_pixels
@@ -357,7 +205,9 @@ static void generer_segment_chaque_n_pixels
 	}
 }
 
-void myy_display_initialised(unsigned int width, unsigned int height) {
+void myy_display_initialised
+(unsigned int width, unsigned int height)
+{
 	LOG(
 		"[myy_display_initialised]\n  width : %u, height : %u\n",
 		width, height
@@ -392,276 +242,9 @@ void myy_display_initialised(unsigned int width, unsigned int height) {
 
 void myy_generate_new_state() {}
 
-#include <myy/helpers/strings.h>
-#include <stdio.h>
 
-static unsigned int offset_between
-(uintptr_t const begin, uintptr_t const end)
-{
-	return (unsigned int) (end - begin);
-}
-
-
-
-static void add_hitbox
-(int32_t const x_left, int32_t const x_right,
- int32_t const y_up,   int32_t const y_down)
-{
-	struct frame_hitbox * const new_hitbox = 
-		test_frame_hitboxes.hitboxes+test_frame_hitboxes.n_hitboxes;
-	
-	new_hitbox->x_left = x_left;
-	new_hitbox->x_right = x_right;
-	new_hitbox->y_up = y_up;
-	new_hitbox->y_down = y_down;
-	
-	test_frame_hitboxes.n_hitboxes++;
-}
-
-struct hitcheck_result {
-	unsigned int hit;
-	unsigned int id;
-};
-
-struct instruction_from_hitbox {
-	unsigned int i;
-	unsigned int arg_i;
-};
-static struct instruction_from_hitbox infer_instruction_from_hitbox_id
-(unsigned int hitbox_index)
-{
-	struct instruction_from_hitbox result = {
-		.i = hitbox_index / 4,
-		.arg_i = hitbox_index % 4
-	};
-	
-	return result;
-}
-static void node_frame_click
-(struct nodes_display_data * __restrict const nodes,
- unsigned int index,
- int const x, int const y)
-{
-	set_current_dropdown_menu(&ga_menus, ga_dropdown_menu_instructions);
-	enable_context_menu();
-	LOG(
-		"Meep : %d - rel_x: %d, rel_y: %d (%d)\n",
-		index, x, y, (y-6)/20
-	);
-}
-
-struct quads_and_size generate_instruction_quads
-(struct glyph_infos const * __restrict const glyph_infos,
- struct instruction_representation const * __restrict const instruction,
- uint8_t * __restrict const cpu_buffer, int16_t const y_offset)
-{
-
-	uint8_t * __restrict buffer = cpu_buffer;
-	struct quads_and_size total = {0};
-	struct generated_quads string_quads;
-	
-	struct text_offset text_offset = {
-		.x_offset = 0,
-		.y_offset = y_offset
-	};
-	
-	// Arbitrary defined. Ugly but should do the trick for the PoC.
-	unsigned int const line_height = 20; // pixels. 
-	uint8_t const * __restrict const mnemonic =
-		mnemonics[instruction->mnemonic_id];
-	unsigned int n_mnemonic_args =
-		mnemonic_args[instruction->mnemonic_id];
-
-	
-	string_quads = myy_single_string_to_quads(
-		glyph_infos, mnemonic, buffer, &text_offset
-	);
-	total.quads.count += string_quads.count;
-	total.quads.size  += string_quads.size;
-	buffer += string_quads.size;
-	
-	/*add_hitbox(
-		-10, text_offset.x_offset+10, y_offset, y_offset+line_height
-	);*/
-	text_offset.x_offset = 60;
-	
-	uint8_t empty_buffer = '\0';
-	uint8_t to_string_buffer[64];
-	uint8_t const * current_string;
-	unsigned int a = 0;
-	while (a < n_mnemonic_args) {
-		struct instruction_args_infos arg = instruction->args[a];
-		switch(arg.type) {
-			case arg_invalid: 
-				current_string = &empty_buffer; break;
-			case arg_condition:
-				current_string = conditions_strings[arg.value];
-				break;
-			case arg_register:
-				current_string = register_names[arg.value];
-				break;
-			case arg_immediate:
-				snprintf(to_string_buffer, 31, "%d", arg.value);
-				current_string = &to_string_buffer;
-				break;
-			case arg_address:
-				snprintf(to_string_buffer, 11, "0x%08x", arg.value);
-				current_string = &to_string_buffer;
-				break;
-			case arg_data_symbol_address:
-			case arg_data_symbol_address_top16:
-			case arg_data_symbol_address_bottom16:
-			case arg_data_symbol_size:
-			case arg_frame_address:
-			case arg_frame_address_pc_relative:
-				snprintf(to_string_buffer, 31, "%d", arg.value);
-				current_string = &to_string_buffer;
-				break;
-			case arg_regmask:
-				snprintf(to_string_buffer, 34, "%b", arg.value);
-				current_string = &to_string_buffer;
-				break;
-		}
-		int current_x = text_offset.x_offset;
-		string_quads = myy_single_string_to_quads(
-			glyph_infos, current_string, buffer, &text_offset
-		);
-		total.quads.count += string_quads.count;
-		total.quads.size  += string_quads.size;
-		buffer += string_quads.size;
-		
-		/*add_hitbox(
-			current_x - 6, text_offset.x_offset + 6, y_offset, y_offset+line_height
-		);*/
-		text_offset.x_offset += 12;
-		a++;
-	}
-	while (a < MAX_ARGS) {
-		/*add_invalid_hitbox();*/
-		a++;
-	}
-	
-	total.size = text_offset;
-
-	return total;
-}
-
-unsigned int test_frame_quads = 0;
-void prepare_hitboxes
-(struct frame_hitboxes * __restrict const hitboxes)
-{
-	hitboxes->n_hitboxes = 0;
-	hitboxes->hitboxes = allocate_durable_memory(
-		sizeof(struct frame_hitbox) * 128
-	);
-	hitboxes->max_hitboxes = 0;
-}
-
-struct quads_and_size generate_frame_quads
-(struct armv7_text_frame const * __restrict const text_frame,
- uint8_t * __restrict const cpu_buffer,
- unsigned int cpu_buffer_offset)
-{
-	unsigned int const y_offset = 20;
-	unsigned int n_instructions =
-		text_frame->metadata.stored_instructions;
-	uint32_t text_pos_y = 24;
-	struct quads_and_size total = {0};
-	struct quads_and_size instruction_quads;
-
-	for (unsigned int i = 0; i < n_instructions; i++) {
-		
-		instruction_quads = generate_instruction_quads(
-			&myy_glyph_infos, text_frame->instructions+i,
-			cpu_buffer+cpu_buffer_offset, text_pos_y
-		);
-		total.quads.count += instruction_quads.quads.count;
-		total.quads.size  += instruction_quads.quads.size;
-		if (instruction_quads.size.x_offset > total.size.x_offset)
-			total.size.x_offset = instruction_quads.size.x_offset;
-		cpu_buffer_offset += instruction_quads.quads.size;
-		text_pos_y += y_offset;
-	}
-	total.size.y_offset = text_pos_y;
-	return total;
-}
-
-void dropdown_menu_hit_func(unsigned int i) {
-  LOG("%d\n", i);
-}
 
 struct swap_menu_infos swap_menu_infos = {0};
-
-struct quads_and_size set_node_title
-(uint8_t const * __restrict const title,
- struct glyph_infos const * __restrict const glyph_infos,
- uint8_t * __restrict const cpu_buffer)
-{
-	struct quads_and_size text_quads_and_size = {
-		.quads = {.size = 0, .count = 0},
-		.size = {.x_offset = 0, .y_offset = 0}
-	};
-
-	struct generated_quads quads = myy_single_string_to_quads(
-		glyph_infos, title, cpu_buffer, &text_quads_and_size.size
-	);
-	text_quads_and_size.quads.size  = quads.size;
-	text_quads_and_size.quads.count = quads.count;
-	return text_quads_and_size;
-}
-
-void generate_frames_quads
-(struct armv7_text_frame const ** __restrict const text_frames,
- unsigned int const n_frames,
- struct nodes_display_data * __restrict const display_data)
-{
-	unsigned int cpu_buffer_size = 0;
-	unsigned int gpu_buffer_offset = display_data->contents.buffer_offset;
-
-	for (unsigned int f = 0; f < n_frames; f++) {
-		unsigned int current_content_quads = 0;
-		struct node_container_metadata * const current_container_info =
-			display_data->containers.metadata+f;
-		struct node_contents_metadata * const current_content_info =
-			display_data->contents.metadata+f;
-		struct armv7_text_frame const * __restrict const current_frame =
-			text_frames[f];
-		current_content_info->buffer_offset =
-			gpu_buffer_offset + cpu_buffer_size;
-		
-		struct quads_and_size const title_quads = set_node_title(
-			current_frame->metadata.name, &myy_glyph_infos,
-			scratch_buffer+cpu_buffer_size
-		);
-		
-		current_content_quads += title_quads.quads.count;
-		cpu_buffer_size += title_quads.quads.size;
-		unsigned int const title_width = title_quads.size.x_offset;
-		
-		struct quads_and_size const frame_quads = generate_frame_quads(
-			current_frame, scratch_buffer, cpu_buffer_size
-		);
-		
-		current_content_quads += frame_quads.quads.count;
-		cpu_buffer_size  += frame_quads.quads.size;
-		unsigned int const content_width  = frame_quads.size.x_offset;
-		unsigned int const content_height = frame_quads.size.y_offset;
-		
-
-		current_container_info->width  =
-			(content_width > title_width ? content_width : title_width);
-		current_container_info->height = content_height;
-		current_container_info->handler_func_id = 0;
-		current_content_info->quads = current_content_quads;
-	}
-	
-	display_data->containers.n_nodes += n_frames;
-	glBindBuffer(GL_ARRAY_BUFFER, display_data->contents.buffer_id);
-	glBufferSubData(
-		GL_ARRAY_BUFFER, gpu_buffer_offset, cpu_buffer_size,
-		scratch_buffer
-	);
-}
 
 #define SWAP_MENUS_BUFFER_OFFSET 0x80000
 
@@ -671,8 +254,8 @@ void myy_init_drawing() {
 	
 	glhBuildAndSaveSimpleProgram(
 	  &glsl_shared_data,
-	  standard_vsh, standard_fsh,
-	  glsl_program_standard
+	  lines_vsh, lines_fsh,
+	  glsl_program_lines
 	);
 	glhBuildAndSaveSimpleProgram(
 	  &glsl_shared_data,
@@ -726,27 +309,10 @@ void myy_init_drawing() {
 		0x0000
 	);
 	
-	setup_dropdown_menu(
-		&ga_menus, ga_dropdown_menu_instructions, mnemonics_full_desc,
-    n_known_instructions, dropdown_menu_hit_func
-	);
-	setup_dropdown_menu(
-		&ga_menus, ga_dropdown_menu_registers, register_names,
-		16, dropdown_menu_hit_func
-	);
-	setup_dropdown_menu(
-		&ga_menus, ga_dropdown_menu_frame_names, register_names, 0,
-		dropdown_menu_hit_func
-	);
-	setup_dropdown_menu(
-		&ga_menus, ga_dropdown_menu_conditions, conditions_strings, 15,
-		dropdown_menu_hit_func
-	);
-	regenerate_menus(
-		&ga_menus, &myy_glyph_infos
-	);
+	nodes_asm_setup_dropdowns_menus(&nodes_display_data, &ga_menus);
+	regenerate_menus(&ga_menus, &myy_glyph_infos);
 	
-	set_swap_menu_title(
+	/*set_swap_menu_title(
 		&swap_menu_infos,
 		"Hello", &myy_glyph_infos
 	);
@@ -756,7 +322,7 @@ void myy_init_drawing() {
 		n_known_instructions, 0,
 		mnemonics_full_desc, conditions_strings,
 		&myy_glyph_infos
-	);
+	);*/
 	
 	prepare_static_menu_parts(&ga_menus.gl_infos);
 
@@ -775,7 +341,9 @@ void myy_init_drawing() {
 		0x4000
 	);
 	nodes_set_handler_func(&nodes_display_data, 0, node_frame_click);
-	generate_frames_quads(test_frames, 2, &nodes_display_data);
+	generate_frames_quads(
+		test_frames, 2, &nodes_display_data, &myy_glyph_infos
+	);
 	generate_and_store_nodes_containers_in_gpu(
 		&nodes_display_data, scratch_buffer
 	);
@@ -809,7 +377,7 @@ void set_test_frame_mnemonic(unsigned int const id) {
 void myy_draw() {
 
 	glClear( GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT );
-	glClearColor(0.1f, 0.3f, 0.5f, 1.0f);
+	glClearColor(0.616f, 0.639f, 0.667f, 1.0f);
 
 	GLuint * glsl_programs = glsl_shared_data.programs;
 	struct norm_offset norm_offset = normalised_offset();
@@ -823,11 +391,17 @@ void myy_draw() {
 	draw_nodes(&nodes_display_data, glsl_programs, offset[2], offset[3]);
 
 	// Lines
-	glUseProgram(glsl_programs[glsl_program_standard]);
-	glEnableVertexAttribArray(attr_xyz);
-	glUniform2f(unif_offset, norm_offset.x, norm_offset.y);
+	glUseProgram(glsl_programs[glsl_program_lines]);
+	glUniform2f(lines_shader_unif_offset, norm_offset.x, norm_offset.y);
+	glUniform3f(
+		lines_shader_unif_color,
+		0.900, 0.900, 0.900
+	);
+	glEnableVertexAttribArray(lines_shader_attr_xyz);
 	glBindBuffer(GL_ARRAY_BUFFER, segment_buffer);
-	glVertexAttribPointer(attr_xyz, 2, GL_FLOAT, GL_FALSE, 0, 0);
+	glVertexAttribPointer(
+		lines_shader_attr_xyz, 2, GL_FLOAT, GL_FALSE, 0, 0
+	);
 	glLineWidth(2);
 	glDrawArrays(GL_LINES, 0, 320);
 }
@@ -916,7 +490,7 @@ void myy_key(unsigned int keycode) {
 		case MYY_KP_4:
 			disable_swap_menu();
 		break;
-		case MYY_KP_5:
+		/*case MYY_KP_5:
 			set_swap_menu_listings(
 				&swap_menu_infos,
 				16, 14,
@@ -930,7 +504,7 @@ void myy_key(unsigned int keycode) {
 				14, n_known_instructions,
 				conditions_strings, mnemonics_full_desc,
 				&myy_glyph_infos
-			);
+			);*/
 		default: break;
 	}
 }
