@@ -14,3 +14,9 @@
 *.user
 CMakeFiles/
 *.kdev4
+.*.el
+GTAGS
+GPATH
+GRTAGS
+tags
+

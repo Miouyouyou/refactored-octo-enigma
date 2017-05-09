@@ -14,18 +14,11 @@ uint8_t display_context_menu = 0;
 uint8_t display_swap_menu = 0;
 
 unsigned int const default_vertical_space = 32; // pixels
-struct {
-  int16_t x, y;
-} const default_context_menu_content_pos = {
-  .x = 1080,
-  .y = 0
+struct { int16_t x, y; } const default_context_menu_content_pos = {
+  .x = 1080, .y = 0
 };
-struct {
-  uint8_t id;
-  uint16_t y_pos;
-} current_dropdown_menu = {
-  .id = 0,
-  .y_pos = 40
+struct { uint8_t id; uint16_t y_pos; } current_dropdown_menu = {
+  .id = 0, .y_pos = 40
 };
 
 extern uint8_t scratch_buffer[];
@@ -54,27 +47,103 @@ void set_menu_buffers_and_offsets
 		static_elements_buffer_offset;
 }
 
-void prepare_static_menu_parts
+struct menu_gl_coords {
+	box_coords_S_t coords;
+	uint16_t depth;
+	struct { uint16_t left, right, top, bottom; } tex_coords;
+} const original_menu_coords[n_context_menu_elements] = {
+	[context_menu_background] = {
+		.coords =
+			{.left = 0, .right = 200, .top = 0,   .bottom = 720},
+		.depth = 1,
+		.tex_coords =
+			{.left = 40000,  .right = 40000, .top = 40000, .bottom = 40000}
+	},
+	[context_menu_close_button] = {
+		.coords = 
+			{.left = 200-32, .right = 200, .top = 0,   .bottom = 32},
+		.depth = 0,
+		.tex_coords =
+			{.left = 0, .right = 8191, .top = 8191, .bottom = 256}
+	},
+	[swap_menu_left_part] = {
+		.coords =
+			{.left = 120,    .right = 446, .top = 150, .bottom = 620},
+		.depth = 0,
+		.tex_coords = {30000,30000,30000,30000}
+	},
+	[swap_menu_right_part] = {
+		.coords =
+			{.left = 534,    .right = 860, .top = 150, .bottom = 620},
+		.depth = 0,
+		.tex_coords = {30000,30000,30000,30000}
+	},
+	[swap_menu_swap_button_up] = {
+		.coords =
+			{.left = 466,    .right = 514, .top = 190, .bottom = 214},
+		.depth = 0,
+		.tex_coords = {4096,4096,4096,4096}
+  },
+	[swap_menu_swap_button_down] = {
+		.coords =
+			{.left = 466,    .right = 514, .top = 556, .bottom = 580},
+		.depth = 0,
+		.tex_coords = {4096,4096,4096,4096}
+	},
+	[swap_menu_background] = {
+		.coords =
+			{.left = 100,    .right = 880, .top = 50,  .bottom = 670},
+		.depth = 32,
+		.tex_coords = {30000,30000,30000,30000}
+	}
+};
+
+struct menu_gl_coords actual_menu_coords[n_context_menu_elements];
+
+inline static void box_coords_S_rebase_from_1280_720
+(box_coords_S_t * __restrict const dst,
+ box_coords_S_t const * __restrict const src,
+ unsigned int width, unsigned int height)
+{
+	dst->left   = (uint16_t) (src->left   * width / 1280);
+	dst->right  = (uint16_t) (src->right  * width / 1280);
+	dst->top    = (uint16_t) (src->top    * height / 720);
+	dst->bottom = (uint16_t) (src->bottom * height / 720);
+}
+
+void menus_recalculate_dimensions
+(uint16_t width, uint16_t height)
+{
+	for (unsigned int b = 0; b < n_context_menu_elements; b++) {
+		box_coords_S_rebase_from_1280_720(
+			&actual_menu_coords[b].coords,
+			&original_menu_coords[b].coords,
+			width, height
+		);
+	}
+}
+
+void menus_regen_static_parts
 (struct menu_gl_metadata const * __restrict const metadata)
 {
-
-	US_two_tris_quad_3D context_menu_elements[n_context_menu_elements] = {
-		[context_menu_background] =
-		  /*         pixels      layer (1/1024)  UV (norm Unsigned Short) */
-			STXYZ_QUAD(0, 200, 0, 720, 1, 40000, 40000, 40000, 40000),
-		[context_menu_close_button] =
-			STXYZ_QUAD(200-32, 200, 0, 32, 0, 0, 8191, 256, 8191),
-		[swap_menu_left_part] =
-			STXYZ_QUAD(120,446, 150, 620, 0, 30000, 30000, 30000, 30000),
-		[swap_menu_right_part] =
-			STXYZ_QUAD(534, 860, 150, 620, 0, 30000, 30000, 30000, 30000),
-		[swap_menu_swap_button_up] =
-			STXYZ_QUAD(466, 514, 190, 214, 0, 4096, 4096, 4096, 4096),
-		[swap_menu_swap_button_down] =
-			STXYZ_QUAD(466, 514, 556, 580, 0, 4096, 4096, 4096, 4096),
-		[swap_menu_background] =
-			STXYZ_QUAD(100, 880, 50, 670, 32, 30000,30000,30000,30000),
-	};
+	
+	US_two_tris_quad_3D context_menu_elements[n_context_menu_elements];
+	
+	for (unsigned int i = 0; i < n_context_menu_elements; i++) {
+		US_two_tris_quad_3D_store(
+			context_menu_elements+i,
+			actual_menu_coords[i].coords.left,
+			actual_menu_coords[i].coords.right,
+			actual_menu_coords[i].coords.top,
+			actual_menu_coords[i].coords.bottom,
+			actual_menu_coords[i].depth,
+			actual_menu_coords[i].tex_coords.left,
+			actual_menu_coords[i].tex_coords.right,
+			actual_menu_coords[i].tex_coords.top,
+			actual_menu_coords[i].tex_coords.bottom
+		);
+		
+	}
 	
 	glBindBuffer(
 		GL_ARRAY_BUFFER,
@@ -98,8 +167,8 @@ static inline unsigned int buffer_switch(unsigned int const buffer)
 	return buffer ^ 1;
 }
 
-void draw_context_menu
-(struct dropdown_menus const * __restrict const menus,
+void dropdown_menus_draw
+(dropdown_menus const * __restrict const menus,
  enum ga_dropdown_menu menu,
  GLuint const * __restrict const programs)
 {
@@ -142,8 +211,8 @@ void draw_context_menu
 	}
 }
 
-void draw_swap_menu
-(struct swap_menu_infos const * __restrict const menu_infos,
+void swap_menus_draw
+(swap_menus const * __restrict const menu_infos,
  GLuint const * __restrict const programs)
 {
 	if (display_swap_menu) {
@@ -151,7 +220,7 @@ void draw_swap_menu
 		glUniform4f(node_shader_unif_px_offset, 0, 0, 256, 0.0f); 
 		glUniform1i(node_shader_unif_sampler, glsl_texture_menus);
 		US_two_tris_quad_3D_draw_pixelscoords(
-			menu_infos->gl_infos.static_elements_buffer_id,
+			menu_infos->gl_infos.static_elements_buffer_id, 
 			node_shader_attr_xyz,
 			node_shader_attr_st,
 			menu_infos->gl_infos.static_elements_buffer_offset +
@@ -170,34 +239,27 @@ void draw_swap_menu
 		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 		GLuint const dynamic_parts_buffer =
 			menu_infos->gl_infos.content_buffer_id;
-		GLuint const dyanmic_parts_offset =
+		GLuint const dynamic_parts_offset =
 			menu_infos->gl_infos.content_buffer_offset;
-		draw_character_quads(
-			dynamic_parts_buffer,
-			node_shader_attr_xyz,
-			node_shader_attr_st,
-			dyanmic_parts_offset,
-			menu_infos->title_quads
-		);
 		glUniform4f(
-      node_shader_unif_px_offset, 0, 0,
-      120,150
+      node_shader_unif_px_offset, 0, 0, 0, 0
     );
 		draw_character_quads(
 			dynamic_parts_buffer,
 			node_shader_attr_xyz,
 			node_shader_attr_st,
-			dyanmic_parts_offset+menu_infos->title_size,
+			dynamic_parts_offset+menu_infos->title_size,
 			menu_infos->columns_quads
 		);
 		glDisable(GL_BLEND);
 	}
 }
 
-void draw_current_context_menu
+void dropdown_menus_draw_current
 (struct dropdown_menus const * __restrict const menus,
- GLuint const * __restrict const programs) {
-  draw_context_menu(
+ GLuint const * __restrict const programs)
+{
+  dropdown_menus_draw(
     menus, menus->current_dropdown_menu, programs
   );
 }
@@ -245,8 +307,7 @@ static unsigned int generate_and_store_menu_in_gpu
 	glBindBuffer(GL_ARRAY_BUFFER, gpu_buffer_id);
 
 	struct text_offset text_rel_position_px = {
-		.x_offset = 0,
-		.y_offset = 0
+		.x_offset = 0, .y_offset = 0
 	};
 	struct generated_quads char_quads = myy_strings_to_quads_va(
 		myy_glyph_infos,
@@ -287,7 +348,7 @@ void regenerate_menus
 	}
 }
 
-void setup_dropdown_menu
+void dropdowns_menu_setup_menu
 (struct dropdown_menus * __restrict const menus,
  enum ga_dropdown_menu menu,
  uint8_t const * const * const strings,
@@ -302,16 +363,63 @@ void setup_dropdown_menu
 
 void enable_context_menu() { display_context_menu = 1; }
 void disable_context_menu() { display_context_menu = 0; }
-void enable_swap_menu() { display_swap_menu = 1; }
-void disable_swap_menu() { display_swap_menu = 0; }
-void set_current_dropdown_menu
-(struct dropdown_menus * __restrict const menus,
+static hitbox_action_S_t swap_menu_hitbox() {
+	
+}
+
+static uint8_t meep(position_S rel, position_S abs)
+{
+	LOG(
+		"Meep ! (%d, %d) - (%d, %d)\n",
+		rel.x, rel.y, abs.x, abs.y
+	);
+	return 1;
+}
+
+void enable_swap_menu
+(swap_menus * __restrict const swap_menus)
+{ 
+	hitboxes_S_add_box_action(
+		swap_menus->common_graphics_data->hitboxes,
+		&actual_menu_coords[swap_menu_background].coords,
+		meep
+	);
+		
+	display_swap_menu = 1;
+}
+void disable_swap_menu
+(swap_menus * __restrict const swap_menus)
+{
+	hitboxes_S_delete_box_action(
+		swap_menus->common_graphics_data->hitboxes,
+		&actual_menu_coords[swap_menu_background].coords,
+		meep
+	);
+	display_swap_menu = 0;
+}
+void swap_menus_refresh
+(swap_menus * __restrict const swap_menus,
+ uint16_t width, uint16_t height)
+{
+	uint8_t swap_menus_currently_shown = display_swap_menu;
+	uint8_t context_menu_currently_shown = display_context_menu;
+	disable_swap_menu(swap_menus);
+	disable_context_menu();
+	menus_recalculate_dimensions(width, height);
+	menus_regen_static_parts(&swap_menus->gl_infos);
+	
+	if (swap_menus_currently_shown)   enable_swap_menu(swap_menus);
+	if (context_menu_currently_shown) enable_context_menu();
+}
+
+void dropdown_menus_set_current
+(dropdown_menus * __restrict const menus,
  enum ga_dropdown_menu current_menu_id)
 {
 	menus->current_dropdown_menu = current_menu_id;
 }
-void set_current_dropdown_menu_callback
-(struct dropdown_menus * __restrict const menus,
+void dropdown_menus_set_current_callback
+(dropdown_menus * __restrict const menus,
  void (*callback)(),
  void * __restrict const data)
 {
@@ -354,14 +462,16 @@ unsigned int manage_current_menu_click
 
 void set_swap_menu_title
 (struct swap_menu_infos * __restrict const swap_menu_infos,
- uint8_t const * __restrict const title,
- struct glyph_infos const * __restrict const glyph_infos)
+ uint8_t const * __restrict const title)
 {
 
 	struct text_offset text_offset = {
 		.x_offset = 0,
 		.y_offset = 0
 	};
+	struct glyph_infos * __restrict const glyph_infos =
+		swap_menu_infos->common_graphics_data->fonts_glyphs;
+	
 	struct generated_quads quads = myy_single_string_to_quads(
 		glyph_infos, title, scratch_buffer, &text_offset
 	);
@@ -386,22 +496,26 @@ void set_swap_menu_listings
  unsigned int const n_strings_left,
  unsigned int const n_strings_right,
  uint8_t const * const * __restrict const left_column_strings,
- uint8_t const * const * __restrict const right_column_strings,
- struct glyph_infos const * __restrict const glyph_infos)
+ uint8_t const * const * __restrict const right_column_strings)
 {
 	GLuint const buffer_offset =
 		swap_menu_infos->gl_infos.content_buffer_offset;
-	unsigned int const gpu_offset = buffer_offset + swap_menu_infos->title_size;
+	unsigned int const gpu_offset = buffer_offset;
 
 	struct text_offset text_position_px = {
-		.x_offset = 0,
-		.y_offset = 0
+		.x_offset = actual_menu_coords[swap_menu_left_part].coords.left,
+		.y_offset = actual_menu_coords[swap_menu_left_part].coords.top
 	};
+	struct glyph_infos * __restrict const glyph_infos = 
+		swap_menu_infos->common_graphics_data->fonts_glyphs;
 	struct generated_quads generated_quads = myy_strings_to_quads_va(
 		glyph_infos, n_strings_left, left_column_strings,
 		scratch_buffer, 24, &text_position_px
 	);
-	text_position_px.x_offset = 544;
+	text_position_px.x_offset = 
+		actual_menu_coords[swap_menu_right_part].coords.left;
+	text_position_px.y_offset =
+		actual_menu_coords[swap_menu_right_part].coords.top;
 	unsigned int const left_quads = generated_quads.count;
 	unsigned int const left_size  = generated_quads.size;
 	generated_quads = myy_strings_to_quads_va(

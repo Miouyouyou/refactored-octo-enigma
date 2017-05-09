@@ -9,25 +9,44 @@ set (MyyMakeTests_VERSION_MAJOR 2)
 set (MyyMakeTests_VERSION_MINOR 0)
 
 set(MyyDumbAssemblerSources
+    lib/Assembler/dumbelflib.c
     lib/Assembler/armv7-arm.c
     lib/Assembler/sections/data.c
     lib/Assembler/sections/text.c
-    lib/Assembler/helpers/memory.c
     )
 
-set(MyyProjectSources
+set(MyyMainHooks
     myy.c
+    )
+
+set(MyyTestsMainHooks
+    tests/myy.c
+   )
+
+set(MyyTestsSources
+    tests/buffers.c
+    tests/comarrays.c
+    tests/binary_generator_menu.c
+    tests/tests_defs.h
+    tests/common.h
+    tests/hitaction.c
+   )
+
+set(MyyProjectSources
     src/nodes.c
     src/nodes_asm.c
+    src/nodes_mem.c
     src/menus.c
     src/text.c
     src/generated/opengl/data_config.c
+    src/program_builder_menu.c
     ${MyyDumbAssemblerSources}
    )
 
 set(MyyProjectHeaders
     src/nodes.h
     src/nodes_asm.h
+    src/nodes_mem.h
     src/menus.h
     src/text.h
    )
@@ -47,8 +66,8 @@ set(MyyProjectLibDeps
     ${FREETYPE_LIBRARIES})
 
 set(MyyShaders
-	  shaders/lines.frag
-		shaders/lines.vert
+    shaders/lines.frag
+    shaders/lines.vert
     shaders/node.frag
     shaders/node.vert
     shaders/color_node.frag
@@ -62,10 +81,10 @@ set(MyyTextures
     textures/menus.raw)
 set(MyyDocumentation
    )
-add_custom_target(Shaders  SOURCES ${MyyShaders})
-add_custom_target(Textures SOURCES ${MyyTextures})
-add_custom_target(Data     SOURCES ${MyyData})
-add_custom_target(Headers  SOURCES ${MyyProjectHeaders})
+add_custom_target(Shaders       SOURCES ${MyyShaders})
+add_custom_target(Textures      SOURCES ${MyyTextures})
+add_custom_target(Data          SOURCES ${MyyData})
+add_custom_target(Headers       SOURCES ${MyyProjectHeaders})
 add_custom_target(Documentation SOURCES ${MyyDocumentation})
 
 include_directories(. myy lib/Assembler)

@@ -33,16 +33,25 @@ struct dropdown_menus {
 	void * current_dropdown_callback_data;
 	struct dropdown_menu_infos data[n_ga_menus];
 };
+typedef struct dropdown_menus dropdown_menus;
 
+
+// TODO : Arrêter de passer les glyphes à chaque fois.
 struct swap_menu_infos {
 	struct menu_gl_metadata gl_infos;
+	struct myy_common_data * common_graphics_data;
 	int16_t
 		title_size, title_quads,
 		columns_size, columns_quads,
 		left_n_options, right_n_options;
 };
 
-void prepare_static_menu_parts
+typedef struct swap_menu_infos swap_menus;
+
+void menus_recalculate_dimensions
+(uint16_t width, uint16_t height);
+
+void menus_regen_static_parts
 (struct menu_gl_metadata const * __restrict const metadata);
 
 void set_menu_buffers_and_offsets
@@ -51,8 +60,6 @@ void set_menu_buffers_and_offsets
  GLuint const static_elements_buffer_id,
  GLuint const static_elements_buffer_offset);
 
-
-
 void prepare_context_menu_with
 (GLuint const * __restrict const context_menu_text_buffer,
  struct glyph_infos const * __restrict const myy_glyph_infos,
@@ -60,25 +67,25 @@ void prepare_context_menu_with
  unsigned int n_strings,
  unsigned int strings_vertical_separation_px);
 
-void draw_context_menu
-(struct dropdown_menus const * __restrict const menus,
+void dropdown_menus_draw
+(dropdown_menus const * __restrict const menus,
  enum ga_dropdown_menu menu,
  GLuint const * __restrict const programs);
 
-void draw_swap_menu
-(struct swap_menu_infos const * __restrict const menu_infos,
+void swap_menus_draw
+(swap_menus const * __restrict const menu_infos,
  GLuint const * __restrict const programs);
 
-void draw_current_context_menu
-(struct dropdown_menus const * __restrict const menus,
+void dropdown_menus_draw_current
+(dropdown_menus const * __restrict const menus,
  GLuint const * __restrict const programs);
 
 void regenerate_menus
-(struct dropdown_menus * __restrict const menus,
+(dropdown_menus * __restrict const menus,
  struct glyph_infos const * __restrict const myy_glyph_infos);
 
-void setup_dropdown_menu
-(struct dropdown_menus * __restrict const menus,
+void dropdowns_menu_setup_menu
+(dropdown_menus * __restrict const menus,
  enum ga_dropdown_menu menu,
  uint8_t const * const * const strings,
  unsigned int const n_strings,
@@ -86,32 +93,48 @@ void setup_dropdown_menu
 
 void enable_context_menu();
 void disable_context_menu();
-void enable_swap_menu();
-void disable_swap_menu();
-void set_current_dropdown_menu
-(struct dropdown_menus * __restrict const menus,
+
+void enable_swap_menu
+(swap_menus  * __restrict const swap_menus);
+
+void disable_swap_menu
+(swap_menus * __restrict const swap_menus);
+
+void swap_menus_refresh
+(swap_menus * __restrict const swap_menus,
+ uint16_t width, uint16_t height);
+
+void dropdown_menus_set_current
+(dropdown_menus * __restrict const menus,
  enum ga_dropdown_menu current_menu_id);
 
-void set_current_dropdown_menu_callback
-(struct dropdown_menus * __restrict const menus,
+void dropdown_menus_set_current_callback
+(dropdown_menus * __restrict const menus,
  void (*callback)(void *, unsigned int id),
  void * __restrict const data);
 
 unsigned int manage_current_menu_click
-(struct dropdown_menus const * __restrict const menus,
+(dropdown_menus const * __restrict const menus,
  int const x, int const win_y);
 
 void set_swap_menu_title
-(struct swap_menu_infos * __restrict const swap_menu_infos,
- uint8_t const * __restrict const title,
- struct glyph_infos const * __restrict const glyph_infos);
+(swap_menus * __restrict const swap_menu_infos,
+ uint8_t const * __restrict const title);
 
 void set_swap_menu_listings
-(struct swap_menu_infos * __restrict const swap_menu_infos,
+(swap_menus * __restrict const swap_menu_infos,
  unsigned int const n_strings_left,
  unsigned int const n_strings_right,
  uint8_t const * const * __restrict const left_column_strings,
- uint8_t const * const * __restrict const right_column_strings,
- struct glyph_infos const * __restrict const glyph_infos);
+ uint8_t const * const * __restrict const right_column_strings);
+
+inline static void swap_menus_set_common_data
+(swap_menus * __restrict const swap_menu_infos,
+ struct myy_common_data * __restrict const common_data)
+{
+	swap_menu_infos->common_graphics_data = common_data;
+}
+
+
 
 #endif

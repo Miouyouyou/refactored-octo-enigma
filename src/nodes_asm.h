@@ -11,24 +11,24 @@ struct mnemonic_info {
 	uint8_t * name;
 };
 
-struct quads_and_size {
-	struct generated_quads quads;
-	struct text_offset size;
-};
+struct quads_and_size node_asm_generate_content
+(nodes const * __restrict const nodes,
+ void const * __restrict const uncasted_frame,
+ struct glyph_infos const * __restrict const fonts_glyphs,
+ buffer_t buffer);
 
-void generate_frames_quads
-(struct armv7_text_frame const * const * __restrict const text_frames,
- unsigned int const n_frames,
- struct nodes_display_data * __restrict const display_data,
- struct glyph_infos const * __restrict const glyphs);
+struct quads_and_size node_asm_generate_title
+(nodes const * __restrict const nodes,
+ void const * __restrict const uncasted_frame,
+ struct glyph_infos const * __restrict const fonts_glyphs,
+ buffer_t buffer);
 
 void nodes_asm_setup_dropdowns_menus
 (struct nodes_display_data * __restrict const nodes,
  struct dropdown_menus * __restrict const menus);
 
-void node_frame_click
-(struct nodes_display_data * __restrict const nodes,
- unsigned int index,
- int const x, int const y);
+void nodes_asm_onclick_handler
+(nodes const * __restrict const nodes,
+ unsigned int index, position_S const pos);
 
 #endif
