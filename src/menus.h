@@ -4,6 +4,7 @@
 #include <myy/current/opengl.h>
 #include <myy/helpers/fonts/packed_fonts_parser.h>
 #include <myy/helpers/fonts/packed_fonts_display.h>
+#include <myy/helpers/hitbox_action.h>
 
 struct menu_gl_metadata {
 	GLuint 
@@ -35,21 +36,69 @@ struct dropdown_menus {
 };
 typedef struct dropdown_menus dropdown_menus;
 
+enum swap_menu_hitbox_name {
+	swap_hitbox_left_listing,
+	swap_hitbox_right_listing,
+	swap_hitbox_swap_ltr,
+	swap_hitbox_swap_rtl,
+	swap_hitbox_right_button_up,
+	swap_hitbox_right_button_down,
+	swap_hitbox_close_button,
+	n_swap_hitboxes
+};
+struct swap_menu_infos;
+typedef struct swap_menu_infos swap_menus;
 
-// TODO : Arrêter de passer les glyphes à chaque fois.
+enum swap_menu_listing_position {
+	swap_menu_listing_left,
+	swap_menu_listing_right,
+	n_swap_menu_listings
+};
 struct swap_menu_infos {
 	struct menu_gl_metadata gl_infos;
-	struct myy_common_data * common_graphics_data;
+	struct myy_common_data const * common_graphics_data;
+	hitboxes_S_t hitboxes;
 	int16_t
 		title_size, title_quads,
 		columns_size, columns_quads,
 		left_n_options, right_n_options;
+	uint16_t selected[n_swap_menu_listings];
 };
 
-typedef struct swap_menu_infos swap_menus;
+struct menu_button_configuration {
+	enum swap_menu_hitbox_name button;
+	void * data;
+	uint8_t (*action)(HITBOX_ACTION_SIG);
+};
+struct swap_menu_buttons {
+	uint32_t n_buttons;
+	struct menu_button_configuration buttons_settings[];
+};
+typedef struct swap_menu_buttons swap_menu_buttons;
 
+
+struct menus {
+	dropdown_menus dropdown;
+	swap_menus swap;
+};
+
+#define SWAP_MENU_LISTING_VERTICAL_SPACING 24
+
+/**
+ * Recalculate the dimensions of the static menus parts after resizing
+ * the window
+ * 
+ * The 'viewport' is the surface on which the program is displayed.
+ * It's either its window, in window mode, or the screen, in fullscreen
+ * mode.
+ * 
+ * @param menus Currently ignored
+ * @param width  The new viewport width
+ * @param height The new viewport height
+ */
 void menus_recalculate_dimensions
-(uint16_t width, uint16_t height);
+(struct menus * __restrict const menus,
+ uint16_t const width, uint16_t const height);
 
 void menus_regen_static_parts
 (struct menu_gl_metadata const * __restrict const metadata);
@@ -71,6 +120,10 @@ void dropdown_menus_draw
 (dropdown_menus const * __restrict const menus,
  enum ga_dropdown_menu menu,
  GLuint const * __restrict const programs);
+
+void swap_menus_init
+(swap_menus * __restrict const menu_infos,
+ struct myy_common_data const * __restrict const common_data);
 
 void swap_menus_draw
 (swap_menus const * __restrict const menu_infos,
@@ -95,13 +148,13 @@ void enable_context_menu();
 void disable_context_menu();
 
 void enable_swap_menu
-(swap_menus  * __restrict const swap_menus);
+(swap_menus  * __restrict const swap_menus, void * menu_data);
 
 void disable_swap_menu
 (swap_menus * __restrict const swap_menus);
 
-void swap_menus_refresh
-(swap_menus * __restrict const swap_menus,
+void menus_refresh
+(struct menus * __restrict const menus,
  uint16_t width, uint16_t height);
 
 void dropdown_menus_set_current
@@ -128,13 +181,11 @@ void set_swap_menu_listings
  uint8_t const * const * __restrict const left_column_strings,
  uint8_t const * const * __restrict const right_column_strings);
 
-inline static void swap_menus_set_common_data
-(swap_menus * __restrict const swap_menu_infos,
- struct myy_common_data * __restrict const common_data)
-{
-	swap_menu_infos->common_graphics_data = common_data;
-}
 
+void set_swap_menu_buttons
+(swap_menus * __restrict const swap_menu_infos,
+ swap_menu_buttons const * __restrict const buttons_configuration);
+ 
 
 
 #endif

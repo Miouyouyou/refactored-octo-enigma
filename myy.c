@@ -59,7 +59,9 @@ GLuint screen_width = 0, screen_height = 0;
 
 uint8_t scratch_buffer[0x100000] __attribute__((aligned(32)));
 
-struct dropdown_menus ga_menus = {0};
+struct menus menus = {0};
+//struct dropdown_menus ga_menus = {0};
+//struct swap_menu_infos swap_menu_infos = {0};
 program_builder_menu_t program_builder_menu;
 // ----- Code ---------------------------------------------
 
@@ -248,7 +250,7 @@ static void generer_segment_chaque_n_pixels
 	
 }
 
-struct swap_menu_infos swap_menu_infos = {0};
+
 void myy_display_initialised(unsigned int width, unsigned int height)
 {
 	LOG(
@@ -257,9 +259,9 @@ void myy_display_initialised(unsigned int width, unsigned int height)
 	);
 	glViewport(0, 0, width, height);
 	generer_segment_chaque_n_pixels(segments, 50, width, height);
-	menus_recalculate_dimensions(width, height);
-	menus_regen_static_parts(&ga_menus.gl_infos);
-	swap_menus_refresh(&swap_menu_infos, width, height);
+	//menus_recalculate_dimensions(&menus.swap, width, height);
+	//menus_regen_static_parts(&menus.dropdown.gl_infos);
+	menus_refresh(&menus, width, height);
 	program_builder_menu_refresh(&program_builder_menu);
 	screen_width = width / 2;
 	screen_height = height / 2;
@@ -285,6 +287,8 @@ void myy_display_initialised(unsigned int width, unsigned int height)
 	glUniformMatrix4fv(
 		color_node_shader_unif_projection, 1, GL_FALSE, px_to_norm.raw_data
 	);
+
+	
 }
 
 void myy_generate_new_state() {}
@@ -343,23 +347,22 @@ void myy_init_drawing() {
 	glBufferData(GL_ARRAY_BUFFER, 0xf0000, (uint8_t *) 0, GL_DYNAMIC_DRAW);
 
 	set_menu_buffers_and_offsets(
-		&ga_menus.gl_infos,
+		&menus.dropdown.gl_infos,
 		context_menu_text_buffer[0], 0x0000,
 		static_menu_parts_buffer[0], 0x0000
 	);
 	set_menu_buffers_and_offsets(
-		&swap_menu_infos.gl_infos,
+		&menus.swap.gl_infos,
 		context_menu_text_buffer[0], 0x10000,
 		static_menu_parts_buffer[0], 0x0000
 	);
-	swap_menus_set_common_data(&swap_menu_infos, &common_display_data);
-
-	nodes_asm_setup_dropdowns_menus(&nodes_display_data, &ga_menus);
-	regenerate_menus(&ga_menus, &myy_glyph_infos);
+	swap_menus_init(&menus.swap, &common_display_data);
+	nodes_asm_setup_dropdowns_menus(&nodes_display_data, &menus.dropdown);
+	regenerate_menus(&menus.dropdown, &myy_glyph_infos);
 	
 	prepare_test_frame_insts(&text_frames);
 	
-	program_builder_menu_first_init(&program_builder_menu, &swap_menu_infos);
+	program_builder_menu_first_init(&program_builder_menu, &menus.swap);
 	program_builder_menu_show_with(&program_builder_menu, &text_frames);
 	
 		// Nodes
@@ -421,8 +424,8 @@ void myy_draw() {
 	struct norm_offset norm_offset = normalised_offset();
 
 	// Context menu
-	dropdown_menus_draw_current(&ga_menus, glsl_programs);
-	swap_menus_draw(&swap_menu_infos, glsl_programs);
+	dropdown_menus_draw_current(&menus.dropdown, glsl_programs);
+	swap_menus_draw(&menus.swap, glsl_programs);
 
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
 	/* Nodes */
@@ -524,11 +527,15 @@ void myy_key(unsigned int keycode) {
 	switch (keycode) {
 		case MYY_KP_1:
 			//show_registers_context_menu();
-			dropdown_menus_set_current(&ga_menus, ga_dropdown_menu_registers);
+			dropdown_menus_set_current(
+				&menus.dropdown, ga_dropdown_menu_registers
+			);
 			enable_context_menu();
 		break;
 		case MYY_KP_2:
-			dropdown_menus_set_current(&ga_menus, ga_dropdown_menu_conditions);
+			dropdown_menus_set_current(
+				&menus.dropdown, ga_dropdown_menu_conditions
+			);
 			enable_context_menu();
 		break;
 		case MYY_KP_3:

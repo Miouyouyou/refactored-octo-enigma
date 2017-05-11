@@ -84,7 +84,7 @@ inline static uint_fast16_t program_builder_menu_total_elements
 	return menu->split_indices->elements.total;
 }
 
-inline static Bool program_builder_menu_is_selection_valid
+inline static uint8_t program_builder_menu_is_selection_valid
 (program_builder_menu_t * __restrict const menu,
  enum split_array_section section)
 {
@@ -102,10 +102,10 @@ void program_builder_menu_show_with
 (program_builder_menu_t * __restrict const menu,
  struct armv7_text_frames * __restrict const program_frames);
 
-void program_builder_move_selected_left_to_right
+uint8_t program_builder_move_selected_left_to_right
 (program_builder_menu_t * __restrict const menu);
 
-void program_builder_move_selected_right_to_left
+uint8_t program_builder_move_selected_right_to_left
 (program_builder_menu_t * __restrict const menu);
 
 void program_builder_menu_generate_executable

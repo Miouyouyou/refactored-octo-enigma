@@ -34,9 +34,10 @@ void program_builder_menu_refresh
 	);
 }
 
-void program_builder_move_selected_right_to_left
+uint8_t program_builder_move_selected_right_to_left
 (program_builder_menu_t * __restrict const menu)
 {
+	uint8_t moved = 0;
 	if (!program_builder_menu_is_selection_valid(menu, split_array_right))
 		goto invalid_selection;
 
@@ -101,13 +102,15 @@ void program_builder_move_selected_right_to_left
 	
 	program_builder_menu_refresh(menu);
 	
+	moved = 1;
 invalid_selection:
-	return;
+	return moved;
 }
 
-void program_builder_move_selected_left_to_right
+uint8_t program_builder_move_selected_left_to_right
 (program_builder_menu_t * __restrict const menu)
 {
+	uint8_t moved = 0;
 	if (!program_builder_menu_is_selection_valid(menu, split_array_left))
 		goto invalid_selection;
 	
@@ -140,10 +143,73 @@ void program_builder_move_selected_left_to_right
 	
 	program_builder_menu_refresh(menu);
 	
+	moved = 1;
+	
 invalid_selection:
-	return;
+	return moved;
 }
 
+uint_fast16_t text_listing_get_id_with_pos
+(position_S rel)
+{
+	LOG("[text_listing_get_id_with_pos]\n Rel.y : %d\n", rel.y);
+	return rel.y / SWAP_MENU_LISTING_VERTICAL_SPACING;
+}
+
+uint8_t program_builder_set_left_selection_with_coords
+(program_builder_menu_t * __restrict const menu,
+ position_S const rel, position_S const abs)
+{
+	program_builder_menu_select(
+		menu, split_array_left, text_listing_get_id_with_pos(rel)
+	);
+	return program_builder_menu_is_selection_valid(
+		menu, split_array_left
+	);
+}
+
+uint8_t program_builder_set_right_selection_with_coords
+(program_builder_menu_t * __restrict const menu,
+ position_S const rel, position_S const abs)
+{
+	program_builder_menu_select(
+		menu, split_array_right, text_listing_get_id_with_pos(rel)
+	);
+	return program_builder_menu_is_selection_valid(
+		menu, split_array_right
+	);
+}
+
+static void program_builder_menu_set_buttons
+(program_builder_menu_t * __restrict const menu)
+{
+	struct {
+		uint32_t n_buttons;
+		struct menu_button_configuration buttons_settings[4];
+	} buttons = {
+		.n_buttons = 4,
+		.buttons_settings = {
+			{
+				.button = swap_hitbox_swap_ltr, .data = menu,
+				.action = program_builder_move_selected_left_to_right
+			},
+			{
+				.button = swap_hitbox_swap_rtl, .data = menu,
+				.action = program_builder_move_selected_right_to_left
+			},
+			{
+				.button = swap_hitbox_left_listing, .data = menu,
+				.action = program_builder_set_left_selection_with_coords
+			},
+			{
+				.button = swap_hitbox_right_listing, .data = menu,
+				.action = program_builder_set_right_selection_with_coords
+			}
+		}
+	};
+	
+	set_swap_menu_buttons(menu->swap_menu_template, &buttons);
+}
 
 void program_builder_menu_set_left_indices
 (program_builder_menu_t * __restrict const menu,
@@ -178,7 +244,8 @@ void program_builder_menu_show_with
 	);
 	program_builder_menu_set_left_indices(menu, program_frames->count);
 	program_builder_menu_refresh(menu);
-	enable_swap_menu(menu->swap_menu_template);
+	program_builder_menu_set_buttons(menu);
+	enable_swap_menu(menu->swap_menu_template, menu);
 }
 
 void program_builder_menu_first_init
