@@ -27,6 +27,30 @@ struct program_builder_menu {
 };
 typedef struct program_builder_menu program_builder_menu_t;
 
+void program_builder_menu_first_init
+(struct program_builder_menu * __restrict const menu,
+ swap_menus * __restrict const swap_menu_template);
+
+void program_builder_menu_show_with
+(program_builder_menu_t * __restrict const menu,
+ struct armv7_text_frames * __restrict const program_frames);
+
+uint8_t program_builder_move_selected_left_to_right
+(program_builder_menu_t * __restrict const menu);
+
+uint8_t program_builder_move_selected_right_to_left
+(program_builder_menu_t * __restrict const menu);
+
+void program_builder_menu_generate_executable
+(program_builder_menu_t * __restrict const menu);
+
+void program_builder_menu_refresh
+(program_builder_menu_t * __restrict const menu);
+
+void program_builder_menu_select
+(program_builder_menu_t * __restrict const menu,
+ enum split_array_section section, uint16_t index);
+
 inline static uint_fast16_t program_builder_menu_get_left_count
 (program_builder_menu_t * __restrict const menu)
 {
@@ -71,13 +95,6 @@ inline static uint_fast16_t program_builder_menu_get_right_selection
 	return program_builder_menu_get_selection(menu, split_array_right);
 }
 
-inline static void program_builder_menu_select
-(program_builder_menu_t * __restrict const menu,
- enum split_array_section section, uint16_t index)
-{
-	menu->selection_index[section] = index;
-}
-
 inline static uint_fast16_t program_builder_menu_total_elements
 (program_builder_menu_t * __restrict const menu)
 {
@@ -94,25 +111,7 @@ inline static uint8_t program_builder_menu_is_selection_valid
 	return selection_index < n_section_indices;
 }
 
-void program_builder_menu_first_init
-(struct program_builder_menu * __restrict const menu,
- swap_menus * __restrict const swap_menu_template);
 
-void program_builder_menu_show_with
-(program_builder_menu_t * __restrict const menu,
- struct armv7_text_frames * __restrict const program_frames);
-
-uint8_t program_builder_move_selected_left_to_right
-(program_builder_menu_t * __restrict const menu);
-
-uint8_t program_builder_move_selected_right_to_left
-(program_builder_menu_t * __restrict const menu);
-
-void program_builder_menu_generate_executable
-(program_builder_menu_t * __restrict const menu);
-
-void program_builder_menu_refresh
-(program_builder_menu_t * __restrict const menu);
 
 
 #endif

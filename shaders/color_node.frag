@@ -1,9 +1,5 @@
-#version 310 es
-
 precision mediump float;
 
-out vec4 fragmentColor;
+varying vec4 rgba;
 
-in vec4 rgba;
-
-void main() { fragmentColor = rgba; }
+void main() { gl_FragColor = rgba; }

@@ -5,6 +5,9 @@
 #include <myy/helpers/fonts/packed_fonts_parser.h>
 #include <myy/helpers/fonts/packed_fonts_display.h>
 #include <myy/helpers/hitbox_action.h>
+#include <myy/helpers/buffers.h>
+
+#include <src/generated/opengl/data_config.h>
 
 struct menu_gl_metadata {
 	GLuint 
@@ -49,20 +52,37 @@ enum swap_menu_hitbox_name {
 struct swap_menu_infos;
 typedef struct swap_menu_infos swap_menus;
 
+struct ui_widget_metadata { box_coords_S_t coords; };
+struct ui_text {
+	struct ui_widget_metadata metadata;
+	uint8_t const * __restrict string;
+};
+struct ui_text_listing {
+	struct ui_widget_metadata metadata;
+	uint16_t selected_index, n_strings;
+	int16_t vertical_spacing;
+	uint8_t const * __restrict const * __restrict strings;
+};
+typedef struct ui_text_listing ui_text_listing;
+
+generated_quads_uS ui_text_listing_generate_quads
+(ui_text_listing * __restrict const listing, buffer_t quads_buffer,
+ struct glyph_infos * __restrict const font_glyphs);
+ 
+
 enum swap_menu_listing_position {
 	swap_menu_listing_left,
 	swap_menu_listing_right,
 	n_swap_menu_listings
 };
+
 struct swap_menu_infos {
 	struct menu_gl_metadata gl_infos;
 	struct myy_common_data const * common_graphics_data;
 	hitboxes_S_t hitboxes;
-	int16_t
-		title_size, title_quads,
-		columns_size, columns_quads,
-		left_n_options, right_n_options;
-	uint16_t selected[n_swap_menu_listings];
+	struct { generated_quads_uS selections, title, columns; } quads;
+	struct ui_text title;
+	struct ui_text_listing listings[n_swap_menu_listings];
 };
 
 struct menu_button_configuration {
@@ -75,7 +95,6 @@ struct swap_menu_buttons {
 	struct menu_button_configuration buttons_settings[];
 };
 typedef struct swap_menu_buttons swap_menu_buttons;
-
 
 struct menus {
 	dropdown_menus dropdown;
@@ -119,7 +138,7 @@ void prepare_context_menu_with
 void dropdown_menus_draw
 (dropdown_menus const * __restrict const menus,
  enum ga_dropdown_menu menu,
- GLuint const * __restrict const programs);
+ struct glsl_programs_shared_data const * __restrict const programs);
 
 void swap_menus_init
 (swap_menus * __restrict const menu_infos,
@@ -127,11 +146,11 @@ void swap_menus_init
 
 void swap_menus_draw
 (swap_menus const * __restrict const menu_infos,
- GLuint const * __restrict const programs);
+ struct glsl_programs_shared_data const * __restrict const programs);
 
 void dropdown_menus_draw_current
 (dropdown_menus const * __restrict const menus,
- GLuint const * __restrict const programs);
+ struct glsl_programs_shared_data const * __restrict const programs);
 
 void regenerate_menus
 (dropdown_menus * __restrict const menus,
@@ -148,7 +167,7 @@ void enable_context_menu();
 void disable_context_menu();
 
 void enable_swap_menu
-(swap_menus  * __restrict const swap_menus, void * menu_data);
+(swap_menus  * __restrict const swap_menus);
 
 void disable_swap_menu
 (swap_menus * __restrict const swap_menus);

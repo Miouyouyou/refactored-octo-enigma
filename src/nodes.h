@@ -10,7 +10,9 @@
 #include <myy/helpers/dimensions.h>
 #include <myy/helpers/buffers.h>
 
-#include <myy.h>
+#include <myy/myy.h>
+
+#include <src/generated/opengl/data_config.h>
 
 #define CORNER_SIZE 10 // pixels
 #define TITLE_HEIGHT 24
@@ -19,7 +21,7 @@
 
 struct quads_and_size {
 	struct generated_quads quads;
-	struct text_offset size;
+	position_S size;
 };
 
 
@@ -203,15 +205,10 @@ struct generated_quads nodes_generate_and_store_containers_in_gpu
 
 void nodes_draw
 (nodes * __restrict const nodes,
- GLuint const * __restrict const programs,
+ struct glsl_programs_shared_data const * __restrict const programs,
  int16_t const global_offset_x, int16_t const global_offset_y);
 
-/*node_id nodes_id_at_position
-(nodes * __restrict const nodes, position_S position);*/
-
 struct status_and_amount { uint8_t status; uint16_t amount; };
-
-
 
 void node_set_position
 (nodes * __restrict const nodes, node_id const id,

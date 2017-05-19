@@ -1,4 +1,4 @@
-#include <myy.h>
+#include <myy/myy.h>
 #include <myy/helpers/fonts/packed_fonts_display.h>
 #include <myy/helpers/log.h>
 #include <myy/helpers/opengl/buffers.h>

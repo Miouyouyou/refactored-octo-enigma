@@ -1,4 +1,4 @@
-#include <myy.h>
+#include <myy/myy.h>
 #include <src/menus.h>
 #include <src/text.h>
 #include <src/generated/opengl/data_config.h>
@@ -28,14 +28,93 @@ enum {
 	context_menu_close_button,
 	swap_menu_left_part,
 	swap_menu_right_part,
-	swap_menu_swap_button_up,
-	swap_menu_swap_button_down,
+	swap_menu_swap_button_ltr,
+	swap_menu_swap_button_rtl,
 	swap_menu_right_button_up,
 	swap_menu_right_button_down,
 	swap_menu_close_button,
 	swap_menu_background,
 	n_context_menu_elements
 };
+
+generated_quads_uS ui_text_listing_generate_text_quads
+(ui_text_listing * __restrict const listings, unsigned int n_listings,
+ buffer_t quads_buffer,
+ struct glyph_infos * __restrict const font_glyphs)
+{
+	generated_quads_uS listings_quads = generated_quads_uS_struct(0,0);
+	
+	for (unsigned int l = 0; l < n_listings; l++) {
+		ui_text_listing * __restrict const listing = listings+l;
+		
+		position_S text_position =
+			position_S_box_coords_S_top_left(listing->metadata.coords);
+		generated_quads_uS_add(&listings_quads, myy_strings_to_quads_va(
+			font_glyphs, listing->n_strings, listing->strings,
+			quads_buffer+listings_quads.size, listing->vertical_spacing,
+			&text_position
+		));
+		
+	}
+	
+	return listings_quads;
+	
+}
+
+#define DARK_BLUE 10,20,75,255
+
+box_coords_S_t ui_text_listing_determine_selection_box_size
+(ui_text_listing const * __restrict const listing)
+{
+	uint_fast16_t selected_index   = listing->selected_index;
+	uint_fast16_t vertical_spacing = listing->vertical_spacing;
+	box_coords_S_t box = {
+		.left   = listing->metadata.coords.left,
+		.right  = listing->metadata.coords.right,
+		.top    = (uint16_t) 
+			(listing->metadata.coords.top
+			 + selected_index * vertical_spacing),
+		.bottom = (uint16_t)
+			(listing->metadata.coords.top 
+			 + (selected_index+1) * vertical_spacing)
+	};
+	
+	return box;
+}
+
+uint_fast8_t ui_text_listing_is_selection_valid
+(ui_text_listing const * __restrict const listing)
+{
+	return listing->selected_index < listing->n_strings;
+}
+
+generated_quads_uS ui_text_listing_generate_selection_quads
+(ui_text_listing * __restrict const listings, unsigned int n_listings,
+ buffer_t quads_buffer,
+ struct glyph_infos * __restrict const font_glyphs)
+{
+	SuB_2t_colored_quad * __restrict const casted_quads_buffer =
+		(SuB_2t_colored_quad * __restrict) quads_buffer;
+	
+	generated_quads_uS quads = generated_quads_uS_struct(0,0);
+	
+	for (unsigned int l = 0; l < n_listings; l++) {
+		ui_text_listing * __restrict const listing = listings+l;
+		
+		if (ui_text_listing_is_selection_valid(listing)) {
+			box_coords_S_t selection_coords =
+				ui_text_listing_determine_selection_box_size(listing);
+			SuB_2t_colored_quad_store_box(
+				selection_coords, DARK_BLUE, casted_quads_buffer+quads.count
+			);
+			quads.count += 1;
+			quads.size  += sizeof(SuB_2t_colored_quad);
+		}
+		
+	}
+	
+	return quads;
+}
 
 void set_menu_buffers_and_offsets
 (struct menu_gl_metadata * __restrict const metadata,
@@ -52,86 +131,124 @@ void set_menu_buffers_and_offsets
 
 #define CLOSE_BUTTON_TEX \
   {.left = 0, .right = 8191, .top = 8191, .bottom = 256}
+#define DOWN_BUTTON_TEX \
+  {.left = 8320, .right = 16256, .top = 8191, .bottom = 256}
+#define UP_BUTTON_TEX \
+  {.left = 16512, .right = 24448, .top = 8191, .bottom = 256}
+#define LTR_BUTTON_TEX \
+  {.left = 24704, .right = 32640, .top = 3967, .bottom = 256}
+#define RTL_BUTTON_TEX \
+  {.left = 24704, .right = 32640, .top = 4223, .bottom = 8063}
+  
+#define BLACK     {0,  0, 0,255}
+#define DARK_GREY {30,30,30,255}
+#define DARK_RED  {80, 0, 0,255}
 
 struct menu_gl_coords {
 	box_coords_S_t coords;
 	uint16_t depth;
-	struct { uint16_t left, right, top, bottom; } tex_coords;
+	rgba_t color;
 } const original_menu_coords[n_context_menu_elements] = {
 	[context_menu_background] = {
 		.coords =
 			{.left = 0, .right = 200, .top = 0,   .bottom = 720},
 		.depth = 1,
-		.tex_coords =
-			{.left = 40000,  .right = 40000, .top = 40000, .bottom = 40000}
+		.color = BLACK
 	},
 	[context_menu_close_button] = {
 		.coords = 
 			{.left = 200-32, .right = 200, .top = 0,   .bottom = 32},
 		.depth = 0,
-		.tex_coords = CLOSE_BUTTON_TEX
+		.color = DARK_RED
 	},
 	[swap_menu_left_part] = {
 		.coords =
 			{.left = 120,    .right = 446, .top = 150, .bottom = 620},
 		.depth = 0,
-		.tex_coords = {30000,30000,30000,30000}
+		.color = DARK_GREY
 	},
 	[swap_menu_right_part] = {
 		.coords =
 			{.left = 534,    .right = 810, .top = 150, .bottom = 620},
 		.depth = 0,
-		.tex_coords = {30000,30000,30000,30000}
+		.color = DARK_GREY
 	},
-	[swap_menu_swap_button_up] = {
+	[swap_menu_swap_button_ltr] = {
 		.coords =
 			{.left = 466,    .right = 514, .top = 190, .bottom = 214},
 		.depth = 0,
-		.tex_coords = {4096,4096,4096,4096}
+		.color = {DARK_BLUE}
   },
-	[swap_menu_swap_button_down] = {
+	[swap_menu_swap_button_rtl] = {
 		.coords =
 			{.left = 466,    .right = 514, .top = 556, .bottom = 580},
 		.depth = 0,
-		.tex_coords = {4096,4096,4096,4096}
+		.color = {DARK_BLUE}
 	},
 	[swap_menu_right_button_up] = {
 		.coords =
 			{.left = 820,    .right = 870, .top = 190, .bottom = 214},
 		.depth = 0,
-		.tex_coords = CLOSE_BUTTON_TEX
+		.color = {DARK_BLUE}
 	},
 	[swap_menu_right_button_down] = {
 		.coords =
 			{.left = 820,    .right = 870, .top = 556, .bottom = 580},
 		.depth = 0,
-		.tex_coords = CLOSE_BUTTON_TEX
+		.color = {DARK_BLUE}
 	},
 	[swap_menu_close_button] = {
 		.coords =
 			{.left = 880-32,    .right = 880, .top = 50, .bottom = 50+32},
 		.depth = 0,
-		.tex_coords = CLOSE_BUTTON_TEX
+		.color = DARK_RED
 	},
 	[swap_menu_background] = {
 		.coords =
 			{.left = 100,    .right = 880, .top = 50,  .bottom = 670},
 		.depth = 32,
-		.tex_coords = {0,65535,65535,0}
+		.color = BLACK
 	}
 };
 
 struct menu_gl_coords actual_menu_coords[n_context_menu_elements];
 
-inline static void box_coords_S_rebase_from_1280_720
-(box_coords_S_t * __restrict const dst,
- box_coords_S_t const * __restrict const src,
- unsigned int width, unsigned int height)
+inline static box_coords_S_t box_coords_S_rebase_from_1280_720
+(box_coords_S_t const src,
+ unsigned int const width, unsigned int const height)
 {
-	dst->left   = (uint16_t) (src->left   * width / 1280);
-	dst->right  = (uint16_t) (src->right  * width / 1280);
-	dst->top    = (uint16_t) (src->top    * height / 720);
-	dst->bottom = (uint16_t) (src->bottom * height / 720);
+	box_coords_S_t returned_box = {
+		.left   = (uint16_t) (src.left   * width / 1280),
+		.right  = (uint16_t) (src.right  * width / 1280),
+		.top    = (uint16_t) (src.top    * height / 720),
+		.bottom = (uint16_t) (src.bottom * height / 720)
+	};
+	
+	return returned_box;
+}
+
+static void swap_menu_update_widgets_pos
+(swap_menus * __restrict const swap_menu,
+ struct menu_gl_coords * __restrict const actual_coords,
+ uint16_t const width, uint16_t height)
+{
+	box_coords_S_t original_menu_title_coords = {
+		.left = 120, .right = 860, .top = 70, .bottom = 130
+	};
+	
+	swap_menu->title.metadata.coords = box_coords_S_rebase_from_1280_720(
+		original_menu_title_coords, width, height
+	);
+
+	uint16_t vertical_spacing_px = 24 * height / 720;
+	swap_menu->listings[swap_menu_listing_left].metadata.coords =
+		actual_coords[swap_menu_left_part].coords;
+	swap_menu->listings[swap_menu_listing_left].vertical_spacing =
+		vertical_spacing_px;
+	swap_menu->listings[swap_menu_listing_right].metadata.coords =
+		actual_coords[swap_menu_right_part].coords;
+	swap_menu->listings[swap_menu_listing_right].vertical_spacing =
+		vertical_spacing_px;
 }
 
 static void swap_menu_update_hitboxes
@@ -148,11 +265,11 @@ static void swap_menu_update_hitboxes
 	);
 	hitbox_action_S_change_coords(
 		swap_menu->hitboxes.data+swap_hitbox_swap_ltr,
-		actual_coords[swap_menu_swap_button_up].coords
+		actual_coords[swap_menu_swap_button_ltr].coords
 	);
 	hitbox_action_S_change_coords(
 		swap_menu->hitboxes.data+swap_hitbox_swap_rtl,
-		actual_coords[swap_menu_swap_button_down].coords
+		actual_coords[swap_menu_swap_button_rtl].coords
 	);
 	hitbox_action_S_change_coords(
 		swap_menu->hitboxes.data+swap_hitbox_right_button_up,
@@ -174,15 +291,16 @@ void menus_recalculate_dimensions
  uint16_t const width, uint16_t const height)
 {
 	for (unsigned int b = 0; b < n_context_menu_elements; b++) {
-		box_coords_S_rebase_from_1280_720(
-			&actual_menu_coords[b].coords,
-			&original_menu_coords[b].coords,
-			width, height
+		actual_menu_coords[b].coords = box_coords_S_rebase_from_1280_720(
+			original_menu_coords[b].coords, width, height
 		);
-		actual_menu_coords[b].depth  = original_menu_coords[b].depth;
-		actual_menu_coords[b].tex_coords = original_menu_coords[b].tex_coords;
+		actual_menu_coords[b].depth = original_menu_coords[b].depth;
+		actual_menu_coords[b].color = original_menu_coords[b].color;
 	}
 	hitboxes_S_quick_reset(&menus->swap.hitboxes);
+	swap_menu_update_widgets_pos(
+		&menus->swap, actual_menu_coords, width, height
+	);
 	swap_menu_update_hitboxes(&menus->swap, actual_menu_coords);
 }
 
@@ -190,22 +308,15 @@ void menus_regen_static_parts
 (struct menu_gl_metadata const * __restrict const metadata)
 {
 	
-	US_two_tris_quad_3D context_menu_elements[n_context_menu_elements];
+	SuB_2t_colored_quad_3D context_menu_elements[n_context_menu_elements];
 	
 	for (unsigned int i = 0; i < n_context_menu_elements; i++) {
-		US_two_tris_quad_3D_store(
-			context_menu_elements+i,
-			actual_menu_coords[i].coords.left,
-			actual_menu_coords[i].coords.right,
-			actual_menu_coords[i].coords.top,
-			actual_menu_coords[i].coords.bottom,
+		SuB_2t_colored_quad_store_box_rgba_3D(
+			actual_menu_coords[i].coords,
+			actual_menu_coords[i].color,
 			actual_menu_coords[i].depth,
-			actual_menu_coords[i].tex_coords.left,
-			actual_menu_coords[i].tex_coords.right,
-			actual_menu_coords[i].tex_coords.top,
-			actual_menu_coords[i].tex_coords.bottom
+			context_menu_elements+i
 		);
-		
 	}
 	
 	glBindBuffer(
@@ -215,7 +326,7 @@ void menus_regen_static_parts
 	glBufferSubData(
 		GL_ARRAY_BUFFER,
 		metadata->static_elements_buffer_offset,
-		sizeof(US_two_tris_quad_3D)*n_context_menu_elements,
+		sizeof(SuB_2t_colored_quad_3D)*n_context_menu_elements,
 		context_menu_elements
 	);
 }
@@ -252,16 +363,18 @@ void swap_menus_init
 void dropdown_menus_draw
 (dropdown_menus const * __restrict const menus,
  enum ga_dropdown_menu menu,
- GLuint const * __restrict const programs)
+ struct glsl_programs_shared_data const * __restrict const glsl_data)
 {
 	if (display_context_menu) {
-		glUseProgram(programs[glsl_program_fixed_widgets]);
-		glUniform4f(node_shader_unif_px_offset, 1080, 0, 256, 0.0f); 
-		glUniform1i(node_shader_unif_sampler, glsl_texture_menus);
-		US_two_tris_quad_3D_draw_pixelscoords(
+		glUseProgram(glsl_data->programs[glsl_program_fixed_widgets]);
+		glUniform4f(
+			fixed_widgets_shader_unif_px_offset, 1080, 0, 256, 0.0f
+		); 
+
+		SuB_2t_colored_quad_3D_draw_pixel_coords(
 			menus->gl_infos.static_elements_buffer_id,
-			node_shader_attr_xyz,
-			node_shader_attr_st,
+			fixed_widgets_shader_attr_xyz,
+			fixed_widgets_shader_attr_in_rgba,
 			menus->gl_infos.static_elements_buffer_offset,
 			2 // quads
 		);
@@ -270,14 +383,15 @@ void dropdown_menus_draw
 			default_context_menu_content_pos.x + 20;
 		uint16_t context_menu_dropdown_y = current_dropdown_menu.y_pos;
 
-		glUseProgram(programs[glsl_program_node]);
-		glUniform1i(node_shader_unif_sampler, glsl_texture_fonts);
-		glUniform4f(
+		glUseProgram(glsl_data->programs[glsl_program_node]);
+		glhUnif1i(node_shader_unif_sampler, glsl_texture_fonts, glsl_data);
+		glhUnif4f(
 			node_shader_unif_px_offset, 0, 0,
-			context_menu_dropdown_x, context_menu_dropdown_y
+			context_menu_dropdown_x, context_menu_dropdown_y,
+			glsl_data
 		);
 
-		glUniform1f(node_shader_unif_layer, 0.20f);
+		glhUnif1f(node_shader_unif_layer, 0.20f, glsl_data);
 		struct dropdown_menu_infos const * __restrict const
 			current_menu = menus->data+menu;
 		glEnable(GL_BLEND);
@@ -285,7 +399,7 @@ void dropdown_menus_draw
 		draw_character_quads(
 			menus->gl_infos.content_buffer_id,
 			node_shader_attr_xyz,
-			node_shader_attr_st,
+			node_shader_attr_in_st,
 			current_menu->offset,
 			current_menu->content_quads
 		);
@@ -295,27 +409,55 @@ void dropdown_menus_draw
 
 void swap_menus_draw
 (swap_menus const * __restrict const menu_infos,
- GLuint const * __restrict const programs)
+ struct glsl_programs_shared_data const * __restrict const glsl_data)
 {
 	if (display_swap_menu) {
-		glUseProgram(programs[glsl_program_fixed_widgets]);
-		glUniform4f(node_shader_unif_px_offset, 0, 0, 256, 0.0f); 
-		glUniform1i(node_shader_unif_sampler, glsl_texture_menus);
-		US_two_tris_quad_3D_draw_pixelscoords(
+		glUseProgram(glsl_data->programs[glsl_program_fixed_widgets]);
+		
+		struct { GLfloat x, y, z, w; } __PALIGN__
+			menu_elements_offset = { 0, 0, 256, 0 };
+		
+
+		glhUnif4fv(
+			fixed_widgets_shader_unif_px_offset,
+			1, (GLfloat *) &menu_elements_offset,
+			glsl_data
+		);
+		SuB_2t_colored_quad_3D_draw_pixel_coords(
 			menu_infos->gl_infos.static_elements_buffer_id, 
-			node_shader_attr_xyz,
-			node_shader_attr_st,
+			fixed_widgets_shader_attr_xyz,
+			fixed_widgets_shader_attr_in_rgba,
 			menu_infos->gl_infos.static_elements_buffer_offset +
-			swap_menu_left_part*sizeof(US_two_tris_quad_3D),
+			swap_menu_left_part*sizeof(SuB_2t_colored_quad_3D),
 			n_context_menu_elements - swap_menu_left_part // quads
 		);
-		glUseProgram(programs[glsl_program_node]);
-		glUniform1i(node_shader_unif_sampler, glsl_texture_fonts);
-		glUniform4f(
-      node_shader_unif_px_offset, 0, 0,
-      120,70
-    );
-		glUniform1f(node_shader_unif_layer, 0.19f);
+		
+		/* Rappels :
+		 * Lors de l'ajout d'un nouveau shader :
+		 * - Rajouter les informations dans generated/data_config.h
+		 *   (Qui devrait être généré automatiquement !)
+		 * - Vérifier de bien régler la matrice de projection
+		 * - Vérifier de bien activer les Vertex Buffers
+		 *   (Devrait être fait qu'une seule fois, cependant)
+		 */
+		// Draw selections boxes
+		
+		glUseProgram(glsl_data->programs[glsl_program_color_static]);
+		glhUnif1f(color_node_shader_unif_layer, 0.2f, glsl_data);
+
+		SuB_2t_colored_quad_draw_pixel_coords(
+			menu_infos->gl_infos.content_buffer_id,
+			color_node_shader_attr_xy,
+			color_node_shader_attr_in_rgba,
+			menu_infos->gl_infos.content_buffer_offset,
+			menu_infos->quads.selections.count
+		);
+		
+		
+		// Draw text
+		glUseProgram(glsl_data->programs[glsl_program_node]);
+		glhUnif1i(node_shader_unif_sampler, glsl_texture_fonts, glsl_data);
+		glhUnif1f(node_shader_unif_layer, 0.19f, glsl_data);
 		
 		glEnable(GL_BLEND);
 		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -323,15 +465,15 @@ void swap_menus_draw
 			menu_infos->gl_infos.content_buffer_id;
 		GLuint const dynamic_parts_offset =
 			menu_infos->gl_infos.content_buffer_offset;
-		glUniform4f(
-      node_shader_unif_px_offset, 0, 0, 0, 0
+		glhUnif4f(
+      node_shader_unif_px_offset, 0, 0, 0, 0, glsl_data
     );
 		draw_character_quads(
 			dynamic_parts_buffer,
 			node_shader_attr_xyz,
-			node_shader_attr_st,
-			dynamic_parts_offset+menu_infos->title_size,
-			menu_infos->columns_quads
+			node_shader_attr_in_st,
+			dynamic_parts_offset+menu_infos->quads.selections.size,
+			menu_infos->quads.columns.count
 		);
 		glDisable(GL_BLEND);
 	}
@@ -339,11 +481,9 @@ void swap_menus_draw
 
 void dropdown_menus_draw_current
 (struct dropdown_menus const * __restrict const menus,
- GLuint const * __restrict const programs)
+ struct glsl_programs_shared_data const * __restrict const programs)
 {
-  dropdown_menus_draw(
-    menus, menus->current_dropdown_menu, programs
-  );
+  dropdown_menus_draw(menus, menus->current_dropdown_menu, programs);
 }
 
 inline static GLuint buffer_switch(GLuint buffer_index)
@@ -365,10 +505,7 @@ void prepare_context_menu_with
 		GL_ARRAY_BUFFER, context_menu_text_buffer[other_text_buffer]
 	);
 
-	struct text_offset text_rel_position_px = {
-		.x_offset = 0,
-		.y_offset = 0
-	};
+	position_S text_rel_position_px = position_S_struct(0,0);
 	struct generated_quads char_quads = myy_strings_to_quads_va(
 		myy_glyph_infos, n_strings, strings, scratch_buffer,
 		strings_vertical_separation_px, &text_rel_position_px
@@ -393,9 +530,8 @@ static unsigned int generate_and_store_menu_in_gpu
 	
 	glBindBuffer(GL_ARRAY_BUFFER, gpu_buffer_id);
 
-	struct text_offset text_rel_position_px = {
-		.x_offset = 0, .y_offset = 0
-	};
+	position_S text_rel_position_px = position_S_struct(0,0);
+
 	struct generated_quads char_quads = myy_strings_to_quads_va(
 		myy_glyph_infos,
 		current_menu->n_strings, current_menu->strings,
@@ -466,7 +602,7 @@ static uint8_t meep
 }
 
 void enable_swap_menu
-(swap_menus * __restrict const swap_menus, void * __restrict menu_data)
+(swap_menus * __restrict const swap_menus)
 { 
 	hitboxes_S_add_box_action(
 		swap_menus->common_graphics_data->hitboxes,
@@ -474,7 +610,7 @@ void enable_swap_menu
 		meep,
 		swap_menus
 	);
-	swap_menus->menu_data = menu_data;
+
 	display_swap_menu = 1;
 }
 void disable_swap_menu
@@ -500,7 +636,7 @@ void menus_refresh
 	menus_regen_static_parts(&swap_menus->gl_infos);
 	
 	if (swap_menus_currently_shown)
-		enable_swap_menu(swap_menus, swap_menus->menu_data);
+		enable_swap_menu(swap_menus);
 	if (context_menu_currently_shown) enable_context_menu();
 }
 
@@ -557,10 +693,7 @@ void set_swap_menu_title
  uint8_t const * __restrict const title)
 {
 
-	struct text_offset text_offset = {
-		.x_offset = 0,
-		.y_offset = 0
-	};
+	position_S text_offset = position_S_struct(0,0); 
 	struct glyph_infos * __restrict const glyph_infos =
 		swap_menu_infos->common_graphics_data->fonts_glyphs;
 	
@@ -578,8 +711,7 @@ void set_swap_menu_title
 		quads.size, scratch_buffer
 	);
 	
-	swap_menu_infos->title_size  = quads.size;
-	swap_menu_infos->title_quads = quads.count;
+	swap_menu_infos->quads.title = quads;
 	
 }
 
@@ -594,43 +726,38 @@ void set_swap_menu_listings
 		swap_menu_infos->gl_infos.content_buffer_offset;
 	unsigned int const gpu_offset = buffer_offset;
 
-	struct text_offset text_position_px = {
-		.x_offset = actual_menu_coords[swap_menu_left_part].coords.left,
-		.y_offset = actual_menu_coords[swap_menu_left_part].coords.top
-	};
+	swap_menu_infos->listings[swap_menu_listing_left].n_strings =
+		n_strings_left;
+	swap_menu_infos->listings[swap_menu_listing_left].strings =
+		left_column_strings;
+	swap_menu_infos->listings[swap_menu_listing_right].n_strings =
+		n_strings_right;
+	swap_menu_infos->listings[swap_menu_listing_right].strings =
+		right_column_strings;
+	
 	struct glyph_infos * __restrict const glyph_infos = 
 		swap_menu_infos->common_graphics_data->fonts_glyphs;
-	struct generated_quads generated_quads = myy_strings_to_quads_va(
-		glyph_infos, n_strings_left, left_column_strings,
-		scratch_buffer, SWAP_MENU_LISTING_VERTICAL_SPACING,
-		&text_position_px
-	);
-	text_position_px.x_offset = 
-		actual_menu_coords[swap_menu_right_part].coords.left;
-	text_position_px.y_offset =
-		actual_menu_coords[swap_menu_right_part].coords.top;
-	unsigned int const left_quads = generated_quads.count;
-	unsigned int const left_size  = generated_quads.size;
-	generated_quads = myy_strings_to_quads_va(
-		glyph_infos, n_strings_right, right_column_strings,
-		scratch_buffer+left_size, SWAP_MENU_LISTING_VERTICAL_SPACING,
-		&text_position_px
-	);
-	unsigned int const total_size  = left_size + generated_quads.size;
-	unsigned int const total_quads = left_quads + generated_quads.count;
-
+	generated_quads_uS listing_selections_quads =
+		ui_text_listing_generate_selection_quads(
+			swap_menu_infos->listings, 2, scratch_buffer, glyph_infos
+		);
+	generated_quads_uS listings_quads = 
+		ui_text_listing_generate_text_quads(
+			swap_menu_infos->listings, 2,
+			scratch_buffer+listing_selections_quads.size, glyph_infos
+		);
+	
+	glGetError();
 	glBindBuffer(
-		GL_ARRAY_BUFFER,
-		swap_menu_infos->gl_infos.content_buffer_id
+		GL_ARRAY_BUFFER, swap_menu_infos->gl_infos.content_buffer_id
 	);
 	glBufferSubData(
-		GL_ARRAY_BUFFER, gpu_offset, total_size, scratch_buffer
+		GL_ARRAY_BUFFER, gpu_offset,
+		listings_quads.size + listing_selections_quads.size, scratch_buffer
 	);
 	
-	swap_menu_infos->columns_quads   = total_quads;
-	swap_menu_infos->columns_size    = total_size;
-	swap_menu_infos->left_n_options  = n_strings_left;
-	swap_menu_infos->right_n_options = n_strings_right;
+	swap_menu_infos->quads.selections = listing_selections_quads;
+	swap_menu_infos->quads.columns = listings_quads;
 }
 
 void set_swap_menu_buttons

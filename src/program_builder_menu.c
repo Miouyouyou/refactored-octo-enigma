@@ -34,6 +34,16 @@ void program_builder_menu_refresh
 	);
 }
 
+void program_builder_menu_select
+(program_builder_menu_t * __restrict const menu,
+ enum split_array_section section, uint16_t index)
+{
+	menu->selection_index[section] = index;
+	menu->swap_menu_template->listings[section].selected_index = index;
+	program_builder_menu_refresh(menu);
+}
+
+
 uint8_t program_builder_move_selected_right_to_left
 (program_builder_menu_t * __restrict const menu)
 {
@@ -245,7 +255,7 @@ void program_builder_menu_show_with
 	program_builder_menu_set_left_indices(menu, program_frames->count);
 	program_builder_menu_refresh(menu);
 	program_builder_menu_set_buttons(menu);
-	enable_swap_menu(menu->swap_menu_template, menu);
+	enable_swap_menu(menu->swap_menu_template);
 }
 
 void program_builder_menu_first_init

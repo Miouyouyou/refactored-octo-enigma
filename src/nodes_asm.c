@@ -141,8 +141,8 @@ struct quads_and_size node_asm_generate_title
  buffer_t buffer)
 {
 	struct quads_and_size text_quads_and_size = {
-		.quads = {.size     = 0, .count    = 0},
-		.size  = {.x_offset = 0, .y_offset = -24}
+		.quads = {.size = 0, .count    = 0},
+		.size  = {.x = 0, .y = -24}
 	};
 	
 	struct armv7_text_frame const * __restrict const armv7_frame =
@@ -166,10 +166,7 @@ static struct quads_and_size generate_instruction_quads
 	struct quads_and_size total = {0};
 	struct generated_quads string_quads;
 	
-	struct text_offset text_offset = {
-		.x_offset = 0,
-		.y_offset = y_offset
-	};
+	position_S text_pos = position_S_struct(0, y_offset);
 	
 	// Arbitrary defined. Ugly but should do the trick for the PoC.
 	uint8_t const * __restrict const mnemonic =
@@ -179,13 +176,13 @@ static struct quads_and_size generate_instruction_quads
 
 	
 	string_quads = myy_single_string_to_quads(
-		glyph_infos, mnemonic, buffer, &text_offset
+		glyph_infos, mnemonic, buffer, &text_pos
 	);
 	total.quads.count += string_quads.count;
 	total.quads.size  += string_quads.size;
 	buffer += string_quads.size;
 	
-	text_offset.x_offset = 60;
+	text_pos.x = 60;
 	
 	uint8_t empty_buffer = '\0';
 	uint8_t to_string_buffer[64];
@@ -224,15 +221,15 @@ static struct quads_and_size generate_instruction_quads
 				current_string = to_string_buffer;
 				break;
 		}
-		int current_x = text_offset.x_offset;
+		int current_x = text_pos.x;
 		string_quads = myy_single_string_to_quads(
-			glyph_infos, current_string, buffer, &text_offset
+			glyph_infos, current_string, buffer, &text_pos
 		);
 		total.quads.count += string_quads.count;
 		total.quads.size  += string_quads.size;
 		buffer += string_quads.size;
 		
-		text_offset.x_offset += 12;
+		text_pos.x += 12;
 		a++;
 	}
 	while (a < MAX_ARGS) {
@@ -240,7 +237,7 @@ static struct quads_and_size generate_instruction_quads
 		a++;
 	}
 	
-	total.size = text_offset;
+	total.size = text_pos;
 
 	return total;
 }
@@ -270,12 +267,12 @@ struct quads_and_size node_asm_generate_content
 		);
 		total.quads.count += instruction_quads.quads.count;
 		total.quads.size  += instruction_quads.quads.size;
-		if (instruction_quads.size.x_offset > total.size.x_offset)
-			total.size.x_offset = instruction_quads.size.x_offset;
+		if (instruction_quads.size.x > total.size.x)
+			total.size.x = instruction_quads.size.x;
 		cpu_buffer_offset += instruction_quads.quads.size;
 		text_pos_y += y_offset;
 	}
-	total.size.y_offset = text_pos_y;
+	total.size.y = text_pos_y;
 	return total;
 }
 

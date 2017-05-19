@@ -7,7 +7,7 @@
 #include <myy/helpers/memory.h>
 #include <myy/helpers/struct.h>
 #include <myy/helpers/log.h>
-#include <myy.h>
+#include <myy/myy.h>
 
 #include <lib/Assembler/armv7-arm.h>
 
@@ -250,7 +250,6 @@ static void generer_segment_chaque_n_pixels
 	
 }
 
-
 void myy_display_initialised(unsigned int width, unsigned int height)
 {
 	LOG(
@@ -276,18 +275,28 @@ void myy_display_initialised(unsigned int width, unsigned int height)
 	myy_matrix_4x4_ortho_layered_window_coords(
 		&px_to_norm, width, height, 1024
 	);
-	glUniformMatrix4fv(
-		node_shader_unif_px_to_norm, 1, GL_FALSE, px_to_norm.raw_data
+	glhMatrix4fv(
+		node_shader_unif_px_to_norm, 1, GL_FALSE, px_to_norm.raw_data,
+		&glsl_shared_data
 	);
 	glUseProgram(glsl_shared_data.programs[glsl_program_fixed_widgets]);
-	glUniformMatrix4fv(
-		node_shader_unif_px_to_norm, 1, GL_FALSE, px_to_norm.raw_data
+	glhMatrix4fv(
+		fixed_widgets_shader_unif_px_to_norm,
+		1, GL_FALSE, px_to_norm.raw_data,
+		&glsl_shared_data
 	);
 	glUseProgram(glsl_shared_data.programs[glsl_program_color_node]);
-	glUniformMatrix4fv(
-		color_node_shader_unif_projection, 1, GL_FALSE, px_to_norm.raw_data
+	glhMatrix4fv(
+		color_node_shader_unif_projection,
+		1, GL_FALSE, px_to_norm.raw_data,
+		&glsl_shared_data
 	);
-
+	glUseProgram(glsl_shared_data.programs[glsl_program_color_static]);
+	glhMatrix4fv(
+		color_static_shader_unif_projection,
+		1, GL_FALSE, px_to_norm.raw_data,
+		&glsl_shared_data
+	);
 	
 }
 
@@ -302,24 +311,7 @@ void myy_init_drawing() {
 	
 	glhShadersPackLoader(&glsl_shared_data);
 	
-	glhBuildAndSaveSimpleProgram(
-	  &glsl_shared_data, lines_vsh, lines_fsh, glsl_program_lines
-	);
-	glhBuildAndSaveSimpleProgram(
-	  &glsl_shared_data, node_vsh, node_fsh, glsl_program_node
-	);
-	glhBuildAndSaveSimpleProgram(
-		&glsl_shared_data,
-		fixed_widgets_vsh,
-		fixed_widgets_fsh,
-		glsl_program_fixed_widgets
-	);
-	glhBuildAndSaveSimpleProgram(
-		&glsl_shared_data,
-		color_node_vsh,
-		color_node_fsh,
-		glsl_program_color_node
-	);
+	glhShadersPackCompileAndLink(&glsl_shared_data);
 
 	GLuint textures_id[n_textures_id];
 	glhUploadMyyRawTextures(
@@ -391,6 +383,7 @@ void myy_init_drawing() {
 		position_S_struct(400, 0), scratch_buffer
 	);
 	glEnable(GL_DEPTH_TEST);
+	glEnable(GL_CULL_FACE);
 
 	LOG("After nodes to GPU\n");
 }
@@ -424,21 +417,27 @@ void myy_draw() {
 	struct norm_offset norm_offset = normalised_offset();
 
 	// Context menu
-	dropdown_menus_draw_current(&menus.dropdown, glsl_programs);
-	swap_menus_draw(&menus.swap, glsl_programs);
+	dropdown_menus_draw_current(&menus.dropdown, &glsl_shared_data);
+	swap_menus_draw(&menus.swap, &glsl_shared_data);
 
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
 	/* Nodes */
-	nodes_draw(&nodes_display_data, glsl_programs, offset[2], offset[3]);
+	nodes_draw(
+		&nodes_display_data, &glsl_shared_data, offset[2], offset[3]
+	);
 
 	// Lines
 	glUseProgram(glsl_programs[glsl_program_lines]);
-	glUniform2f(lines_shader_unif_offset, norm_offset.x, norm_offset.y);
-	glUniform3f(
-		lines_shader_unif_color,
-		0.900, 0.900, 0.900
+	glhUnif2f(
+		lines_shader_unif_offset, norm_offset.x, norm_offset.y,
+		&glsl_shared_data
 	);
-	glEnableVertexAttribArray(lines_shader_attr_xyz);
+	glhUnif3f(
+		lines_shader_unif_color,
+		0.900, 0.900, 0.900,
+		&glsl_shared_data
+	);
+
 	glBindBuffer(GL_ARRAY_BUFFER, segment_buffer);
 	glVertexAttribPointer(
 		lines_shader_attr_xyz, 2, GL_FLOAT, GL_FALSE, 0, 0

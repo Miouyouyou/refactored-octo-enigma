@@ -203,7 +203,7 @@ static void node_container_regenerate_gpu_quads
 
 void nodes_draw
 (struct nodes_display_data * __restrict const nodes,
- GLuint const * __restrict const programs,
+ struct glsl_programs_shared_data const * __restrict const glsl_data,
  int16_t const global_offset_x, int16_t const global_offset_y)
 {
 	unsigned int const n_nodes = nodes->count;
@@ -215,20 +215,19 @@ void nodes_draw
 	//   Background should be drawn last to avoid overdraw
 	//   however, dealing with transparent text is kind of
 	//   pain when doing this...
-	glUseProgram(programs[glsl_program_color_node]);
-	glEnableVertexAttribArray(color_node_shader_attr_xy);
-	glEnableVertexAttribArray(color_node_shader_attr_rgba);
-	glUniform4f(
+	glUseProgram(glsl_data->programs[glsl_program_color_node]);
+
+	glhUnif4f(
 		color_node_shader_unif_px_offset,
 		global_offset_x, global_offset_y,
-		0,0
+		0,0, glsl_data
 	);
-	glUniform1f(node_shader_unif_layer, 0.5f);
+	glhUnif1f(node_shader_unif_layer, 0.5f, glsl_data);
 
 	SuB_2t_colored_quad_draw_pixel_coords(
 		gpu_dumb_3buffs_current_buffer_id(&nodes->containers.buffer),
 		color_node_shader_attr_xy,
-		color_node_shader_attr_rgba,
+		color_node_shader_attr_in_rgba,
 		0,
 		nodes->containers.quads
 	);
@@ -236,28 +235,28 @@ void nodes_draw
 	// Nodes contents
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-	glUseProgram(programs[glsl_program_node]);
-	glEnableVertexAttribArray(node_shader_attr_st);
-	glEnableVertexAttribArray(node_shader_attr_xyz);
-	glUniform1i(node_shader_unif_sampler, glsl_texture_fonts);
-	glUniform1f(node_shader_unif_layer, 0.4f);
+	glUseProgram(glsl_data->programs[glsl_program_node]);
+
+	glhUnif1i(node_shader_unif_sampler, glsl_texture_fonts, glsl_data);
+	glhUnif1f(node_shader_unif_layer, 0.4f, glsl_data);
 	GLuint const nodes_contents_gpu_buffer_id =
 		gpu_dumb_3buffs_current_buffer_id(&nodes->contents.buffer);
 	for (unsigned int n = 0; n < n_nodes; n++) {
 		node_content current_contents = 
 			nodes_get_content_copy_at(nodes, n);
 		
-		glUniform4f(
+		glhUnif4f(
 			node_shader_unif_px_offset,
 			global_offset_x, global_offset_y,
 			current_contents.pos.x+added_x_px,
-			current_contents.pos.y+added_y_px
+			current_contents.pos.y+added_y_px,
+			glsl_data
 		);
 		
 		draw_character_quads(
 			nodes_contents_gpu_buffer_id,
 			node_shader_attr_xyz,
-			node_shader_attr_st,
+			node_shader_attr_in_st,
 			current_contents.buffer_offset,
 			current_contents.quads
 		);
@@ -463,7 +462,7 @@ struct status_and_amount nodes_add
 		
 		buffer_size += content.quads.size;
 		generated_quads_uS_add(&total_quads, content.quads);
-		unsigned int const content_width = content.size.x_offset;
+		//unsigned int const content_width = content.size.x_offset;
 		
 		/* Store the number of quads generated.
 		 * FIXME : That should be the number of points. We should not care
@@ -474,8 +473,8 @@ struct status_and_amount nodes_add
 		// The title dimensions are not stored. The title dimensions will
 		// be computed when generating the container.
 		
-		current_container->dimensions.width  = content.size.x_offset;
-		current_container->dimensions.height = content.size.y_offset;
+		current_container->dimensions.width  = content.size.x;
+		current_container->dimensions.height = content.size.y;
 	 }
 	
 	/* TODO : Pas de mise à jour précise avec des tampons simples

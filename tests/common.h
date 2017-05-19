@@ -1,7 +1,7 @@
 #pragma once
 
 #include <assert.h>
-#include <myy.h>
+#include <myy/myy.h>
 #include <myy/helpers/buffers.h>
 
 #include <myy/helpers/hitbox_action.h> // box coords
